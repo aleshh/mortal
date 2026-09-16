@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { completeTask, deleteTask, moveContext, newTask, normalizeData, upsertTask, visibleTasks, type Data } from './model';
+import { completeTask, deleteTask, moveContext, newTask, normalizeData, reorderContexts, reorderTasks, upsertTask, visibleTasks, type Data } from './model';
 function fixture(): Data { return { contexts: [{ id: 'home', name: 'Home', color: '#000000', emoji: '' }], tasks: [newTask('Project', { id: 'p', project: true, contexts: ['home'] }), newTask('Step', { id: 's', parentId: 'p', contexts: ['home'] }), newTask('Unsorted', { id: 'u' })] }; }
 const ids = (data: Data, view: string, completed = false) => visibleTasks(data, view, completed).map(t => t.id);
 test('a project with open steps appears only in Projects, not action or context lists', () => { const d = fixture(); assert.deepEqual(ids(d, 'projects'), ['p']); assert.deepEqual(ids(d, 'all'), ['s', 'u']); assert.deepEqual(ids(d, 'context:home'), ['s']); assert.deepEqual(ids(d, 'project:p'), ['s']); });
@@ -77,4 +77,33 @@ test('contexts can move earlier and later without changing task assignments', ()
   assert.deepEqual(later.contexts.map(context => context.id), ['home', 'work', 'out']);
   assert.equal(moveContext(later, 'home', -1), later);
   assert.equal(moveContext(later, 'out', 1), later);
+});
+
+test('contexts can be reordered by id without changing task assignments', () => {
+  const data = fixture();
+  data.contexts.push(
+    { id: 'work', name: 'Work', color: '#111111', emoji: '💻' },
+    { id: 'out', name: 'Out', color: '#222222', emoji: '🚲' },
+  );
+  data.tasks[1].contexts.push('work');
+
+  const reordered = reorderContexts(data, ['out', 'home', 'work']);
+  assert.deepEqual(reordered.contexts.map(context => context.id), ['out', 'home', 'work']);
+  assert.deepEqual(reordered.tasks[1].contexts, ['home', 'work']);
+  assert.equal(reorderContexts(data, ['home', 'missing', 'out']), data);
+});
+
+test('reordering a visible task subset preserves hidden tasks and task data', () => {
+  const data = fixture();
+  data.tasks.splice(1, 0, newTask('Hidden step', { id: 'hidden', parentId: 'other-project' }));
+  const reordered = reorderTasks(data, ['u', 's']);
+
+  assert.deepEqual(reordered.tasks.map(task => task.id), ['p', 'hidden', 'u', 's']);
+  assert.deepEqual(reordered.tasks.find(task => task.id === 's')?.contexts, ['home']);
+});
+
+test('invalid reorder requests leave task data unchanged', () => {
+  const data = fixture();
+  assert.equal(reorderTasks(data, ['s', 's']), data);
+  assert.equal(reorderTasks(data, ['missing']), data);
 });

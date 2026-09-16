@@ -80,3 +80,27 @@ export function moveContext(data: Data, id: string, offset: -1 | 1): Data {
   [contexts[from], contexts[to]] = [contexts[to], contexts[from]];
   return { ...data, contexts };
 }
+
+export function reorderContexts(data: Data, orderedIds: string[]): Data {
+  if (orderedIds.length !== data.contexts.length || new Set(orderedIds).size !== orderedIds.length) return data;
+  const contexts = orderedIds.map(id => data.contexts.find(context => context.id === id));
+  if (contexts.some(context => !context)) return data;
+  return { ...data, contexts: contexts as Context[] };
+}
+
+export function reorderTasks(data: Data, orderedIds: string[]): Data {
+  const ids = new Set(orderedIds);
+  if (ids.size !== orderedIds.length) return data;
+
+  const orderedTasks = orderedIds.map(id => data.tasks.find(task => task.id === id));
+  if (orderedTasks.some(task => !task)) return data;
+
+  const positions = data.tasks
+    .map((task, index) => ids.has(task.id) ? index : -1)
+    .filter(index => index >= 0);
+  if (positions.length !== orderedTasks.length) return data;
+
+  const tasks = [...data.tasks];
+  positions.forEach((position, index) => { tasks[position] = orderedTasks[index]!; });
+  return { ...data, tasks };
+}

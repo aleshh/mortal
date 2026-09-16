@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
-import { ArrowDown, ArrowDownToLine, ArrowLeft, ArrowRight, ArrowUp, Check, ChevronRight, Folder, House, LogOut, MoreHorizontal, Plus, Search, Settings2, Trash2, X } from 'lucide-react';
+import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS as DndCSS } from '@dnd-kit/utilities';
+import { ArrowDownToLine, ArrowLeft, ArrowRight, Check, ChevronRight, Folder, GripVertical, House, LogOut, MoreHorizontal, Plus, Search, Settings2, Trash2, X } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
-import { completeTask, deleteTask, hasOpenChildren, moveContext, newTask, normalizeData, palette, seedData, uid, upsertTask, visibleTasks, type Context, type Data, type Task } from './model';
+import { completeTask, deleteTask, hasOpenChildren, newTask, normalizeData, palette, reorderContexts, reorderTasks, seedData, uid, upsertTask, visibleTasks, type Context, type Data, type Task } from './model';
 import { supabase } from './supabase';
 
 const LOCAL_KEY = 'mortal.demo.v1';
@@ -37,6 +40,54 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   </dialog>;
 }
 
+function SortableTaskRow({ task, data, busy, reorderEnabled, onComplete, onOpen, onOpenProject }: {
+  task: Task;
+  data: Data;
+  busy: boolean;
+  reorderEnabled: boolean;
+  onComplete: () => void;
+  onOpen: () => void;
+  onOpenProject: () => void;
+}) {
+  const blocked = hasOpenChildren(task, data.tasks);
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id, disabled: !reorderEnabled });
+  const style: CSSProperties = {
+    transform: DndCSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 2 : undefined,
+  };
+
+  return <div ref={setNodeRef} style={style} className={`task-row ${task.completed ? 'completed' : ''} ${isDragging ? 'dragging' : ''}`}>
+    <button className={`drag-handle ${reorderEnabled ? '' : 'disabled'}`} disabled={!reorderEnabled} aria-label={`Reorder ${task.title}`} {...attributes} {...listeners}><GripVertical size={18}/></button>
+    <button className={`check-target ${task.completed ? 'checked' : ''}`} disabled={busy || (!task.completed && blocked)} title={blocked ? 'Complete subtasks first' : task.completed ? 'Reopen' : 'Complete'} aria-label={`${task.completed ? 'Reopen' : 'Complete'} ${task.title}`} onClick={onComplete}><span className={`checkbox ${blocked ? 'blocked' : ''}`}>{task.completed ? <Check size={13}/> : blocked ? <Folder size={12}/> : null}</span></button>
+    <div className="task-content">
+      <button className="task-title" onClick={task.project ? onOpenProject : onOpen}>{task.title}{task.project && <ChevronRight size={15}/>}</button>
+    </div>
+    <button className="icon-button task-more" aria-label={`Edit ${task.title}`} onClick={onOpen}><MoreHorizontal size={19}/></button>
+  </div>;
+}
+
+function SortableContextRow({ context, busy, reorderEnabled, onEdit }: {
+  context: Context;
+  busy: boolean;
+  reorderEnabled: boolean;
+  onEdit: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: context.id, disabled: !reorderEnabled });
+  const style: CSSProperties = {
+    transform: DndCSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 2 : undefined,
+  };
+
+  return <div ref={setNodeRef} style={style} className={`context-order-row ${isDragging ? 'dragging' : ''}`}>
+    <button className="drag-handle context-drag-handle" disabled={busy || !reorderEnabled} aria-label={`Reorder ${context.name}`} {...attributes} {...listeners}><GripVertical size={18}/></button>
+    <button className="nav-pill context-edit-pill" style={contextStyle(context.color)} onClick={onEdit}>
+      {context.emoji && <span>{context.emoji}</span>}{context.name}
+    </button>
+  </div>;
+}
+
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(!!supabase);
@@ -62,6 +113,10 @@ export default function App() {
   const [undo, setUndo] = useState<Data | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const quickRef = useRef<HTMLInputElement>(null);
+  const dragSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   useEffect(() => {
     const updateRoute = () => setPublicRouteState(getPublicRoute());
@@ -148,6 +203,8 @@ export default function App() {
     .filter(t => !query || `${t.title} ${data.contexts.filter(c => t.contexts.includes(c.id)).map(c => c.name).join(' ')}`.toLowerCase().includes(query.toLowerCase()))
     .sort((a, b) => Number(a.completed) - Number(b.completed));
   const completedCount = visibleTasks(data, view, true).filter(t => t.completed).length;
+  const reorderEnabled = loaded && !busy && !query && !showCompleted && tasks.length > 1;
+  const contextReorderEnabled = loaded && !busy && data.contexts.length > 1;
   function newContext() { setContextEdit({ id: uid(), name: '', color: palette[data.contexts.length % palette.length], emoji: '' }); }
   function capturePatch(): Partial<Task> {
     return { contexts: activeContext ? [activeContext.id] : activeProject?.contexts ?? [], parentId: activeProject?.id ?? null, project: view === 'projects' };
@@ -162,6 +219,22 @@ export default function App() {
   async function saveTask(task: Task) {
     task = { ...task, title: task.title.trim() };
     if (await save(upsertTask(data, task))) setEditing(null);
+  }
+  function finishTaskDrag(event: DragEndEvent) {
+    if (!reorderEnabled || !event.over || event.active.id === event.over.id) return;
+    const from = tasks.findIndex(task => task.id === event.active.id);
+    const to = tasks.findIndex(task => task.id === event.over!.id);
+    if (from < 0 || to < 0) return;
+    const orderedIds = arrayMove(tasks, from, to).map(task => task.id);
+    void save(reorderTasks(data, orderedIds));
+  }
+  function finishContextDrag(event: DragEndEvent) {
+    if (!contextReorderEnabled || !event.over || event.active.id === event.over.id) return;
+    const from = data.contexts.findIndex(context => context.id === event.active.id);
+    const to = data.contexts.findIndex(context => context.id === event.over!.id);
+    if (from < 0 || to < 0) return;
+    const orderedIds = arrayMove(data.contexts, from, to).map(context => context.id);
+    void save(reorderContexts(data, orderedIds));
   }
 
   function exportData() {
@@ -195,17 +268,20 @@ export default function App() {
         <input ref={quickRef} value={quickTitle} onChange={e => setQuickTitle(e.target.value)} maxLength={240} placeholder={view === 'projects' ? 'Add a project' : activeProject ? 'Add a subtask' : 'Add a task'} aria-label={view === 'projects' ? 'New project title' : 'New task title'} disabled={!loaded} enterKeyHint="done"/>
         <button className="add-button" type="submit" disabled={!quickTitle.trim() || !loaded || busy} aria-label={view === 'projects' ? 'Add project' : 'Add task'}><Plus size={21}/></button>
       </form>
-      {!loaded ? <div className="empty-state" role="status">{loadError ? <>Couldn’t load tasks. <button className="text-button" onClick={() => window.location.reload()}>Retry</button></> : 'Loading…'}</div> : tasks.length === 0 ? <p className="empty-state">{query ? 'No matches.' : 'No tasks.'}</p> : <div className="task-list">{tasks.map(task => {
-        const blocked = hasOpenChildren(task, data.tasks);
-        return <div className={`task-row ${task.completed ? 'completed' : ''}`} key={task.id}>
-          <button className={`check-target ${task.completed ? 'checked' : ''}`} disabled={busy || (!task.completed && blocked)} title={blocked ? 'Complete subtasks first' : task.completed ? 'Reopen' : 'Complete'} aria-label={`${task.completed ? 'Reopen' : 'Complete'} ${task.title}`} onClick={() => void save(completeTask(data, task.id), true)}><span className={`checkbox ${blocked ? 'blocked' : ''}`}>{task.completed ? <Check size={13}/> : blocked ? <Folder size={12}/> : null}</span></button>
-          <div className="task-content">
-            <button className="task-title" onClick={() => task.project ? navigate(`project:${task.id}`) : setEditing(task)}>{task.title}{task.project && <ChevronRight size={15}/>}</button>
-
-          </div>
-          <button className="icon-button task-more" aria-label={`Edit ${task.title}`} onClick={() => setEditing(task)}><MoreHorizontal size={19}/></button>
-        </div>;
-      })}</div>}
+      {!loaded ? <div className="empty-state" role="status">{loadError ? <>Couldn’t load tasks. <button className="text-button" onClick={() => window.location.reload()}>Retry</button></> : 'Loading…'}</div> : tasks.length === 0 ? <p className="empty-state">{query ? 'No matches.' : 'No tasks.'}</p> : <DndContext sensors={dragSensors} collisionDetection={closestCenter} onDragEnd={finishTaskDrag}>
+        <SortableContext items={tasks.map(task => task.id)} strategy={verticalListSortingStrategy}>
+          <div className="task-list">{tasks.map(task => <SortableTaskRow
+            key={task.id}
+            task={task}
+            data={data}
+            busy={busy}
+            reorderEnabled={reorderEnabled}
+            onComplete={() => void save(completeTask(data, task.id), true)}
+            onOpen={() => setEditing(task)}
+            onOpenProject={() => navigate(`project:${task.id}`)}
+          />)}</div>
+        </SortableContext>
+      </DndContext>}
       <div className="list-footer"><button className="text-button" aria-pressed={showCompleted} onClick={() => setShowCompleted(!showCompleted)}>{showCompleted ? 'Hide' : 'Show'} completed{completedCount > 0 ? ` (${completedCount})` : ''}</button></div>
     </main>
     {(notice || undo) && <div className="toast" role="status"><span>{notice || 'Saved.'}</span>{undo && !notice && <button className="text-button" disabled={busy} onClick={() => void save(undo)}>Undo</button>}<button className="icon-button" aria-label="Dismiss" onClick={() => { setNotice(''); setUndo(null); }}><X size={16}/></button></div>}
@@ -227,17 +303,13 @@ export default function App() {
         </section>
         <section>
           <h3>Contexts</h3>
-          <div className="settings-contexts">
-            {data.contexts.map((context, index) => <div className="context-order-row" key={context.id}>
-              <button className="nav-pill context-edit-pill" style={contextStyle(context.color)} onClick={() => { setSettings(false); setContextEdit(context); }}>
-                {context.emoji && <span>{context.emoji}</span>}{context.name}
-              </button>
-              <div className="context-order-controls">
-                <button className="icon-button" disabled={busy || index === 0} aria-label={`Move ${context.name} earlier`} onClick={() => void save(moveContext(data, context.id, -1))}><ArrowUp size={16}/></button>
-                <button className="icon-button" disabled={busy || index === data.contexts.length - 1} aria-label={`Move ${context.name} later`} onClick={() => void save(moveContext(data, context.id, 1))}><ArrowDown size={16}/></button>
+          <DndContext sensors={dragSensors} collisionDetection={closestCenter} onDragEnd={finishContextDrag}>
+            <SortableContext items={data.contexts.map(context => context.id)} strategy={verticalListSortingStrategy}>
+              <div className="settings-contexts">
+                {data.contexts.map(context => <SortableContextRow key={context.id} context={context} busy={busy} reorderEnabled={contextReorderEnabled} onEdit={() => { setSettings(false); setContextEdit(context); }}/>) }
               </div>
-            </div>)}
-          </div>
+            </SortableContext>
+          </DndContext>
           <button className="text-button add-context-button" disabled={!loaded || busy} onClick={() => { setSettings(false); newContext(); }}><Plus size={16}/> Add context</button>
           {notice && <p className="form-error" role="alert">{notice}</p>}
         </section>
