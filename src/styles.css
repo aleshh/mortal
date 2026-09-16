@@ -110,7 +110,12 @@ h1 { font-size: 27px; font-weight: 700; letter-spacing: -1.1px; line-height: 1.3
 .settings-content h3 { font-size: 12px; font-weight: 650; margin-bottom: 8px; }
 .settings-content p { font-size: 13px; color: var(--muted); line-height: 1.7; overflow-wrap: anywhere; }
 .settings-content section + section { border-top: 1px solid var(--line); padding-top: 19px; }
-.settings-contexts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.settings-contexts { display: grid; gap: 5px; }
+.context-order-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.context-edit-pill { justify-content: flex-start; min-width: 0; overflow-wrap: anywhere; text-align: left; }
+.context-order-controls { display: flex; margin-left: auto; flex-shrink: 0; }
+.context-order-controls .icon-button { min-width: 40px; min-height: 40px; }
+.add-context-button { margin-top: 8px; }
 .keyboard-help { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 10px; color: var(--muted); display: none; }
 .settings-export { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .auth-page { max-width: 390px; margin: 0 auto; padding: max(60px, env(safe-area-inset-top)) 22px 30px; }

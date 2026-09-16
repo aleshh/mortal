@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { completeTask, deleteTask, newTask, normalizeData, upsertTask, visibleTasks, type Data } from './model';
+import { completeTask, deleteTask, moveContext, newTask, normalizeData, upsertTask, visibleTasks, type Data } from './model';
 function fixture(): Data { return { contexts: [{ id: 'home', name: 'Home', color: '#000000', emoji: '' }], tasks: [newTask('Project', { id: 'p', project: true, contexts: ['home'] }), newTask('Step', { id: 's', parentId: 'p', contexts: ['home'] }), newTask('Unsorted', { id: 'u' })] }; }
 const ids = (data: Data, view: string, completed = false) => visibleTasks(data, view, completed).map(t => t.id);
 test('a project with open steps appears only in Projects, not action or context lists', () => { const d = fixture(); assert.deepEqual(ids(d, 'projects'), ['p']); assert.deepEqual(ids(d, 'all'), ['s', 'u']); assert.deepEqual(ids(d, 'context:home'), ['s']); assert.deepEqual(ids(d, 'project:p'), ['s']); });
@@ -59,4 +59,22 @@ test('adding a subtask reopens a completed project and clears its completion dat
   const parent = updated.tasks.find(t => t.id === 'p')!;
   assert.equal(parent.completed, false);
   assert.equal(parent.completedAt, null);
+});
+
+test('contexts can move earlier and later without changing task assignments', () => {
+  const data = fixture();
+  data.contexts.push(
+    { id: 'work', name: 'Work', color: '#111111', emoji: '💻' },
+    { id: 'out', name: 'Out', color: '#222222', emoji: '🚲' },
+  );
+  data.tasks[1].contexts.push('work');
+
+  const earlier = moveContext(data, 'work', -1);
+  assert.deepEqual(earlier.contexts.map(context => context.id), ['work', 'home', 'out']);
+  assert.deepEqual(earlier.tasks[1].contexts, ['home', 'work']);
+
+  const later = moveContext(earlier, 'work', 1);
+  assert.deepEqual(later.contexts.map(context => context.id), ['home', 'work', 'out']);
+  assert.equal(moveContext(later, 'home', -1), later);
+  assert.equal(moveContext(later, 'out', 1), later);
 });

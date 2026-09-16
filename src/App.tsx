@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
-import { ArrowDownToLine, ArrowLeft, ArrowRight, Check, ChevronRight, Folder, House, LogOut, MoreHorizontal, Plus, Search, Settings2, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowDownToLine, ArrowLeft, ArrowRight, ArrowUp, Check, ChevronRight, Folder, House, LogOut, MoreHorizontal, Plus, Search, Settings2, Trash2, X } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
-import { completeTask, deleteTask, hasOpenChildren, newTask, normalizeData, palette, seedData, uid, upsertTask, visibleTasks, type Context, type Data, type Task } from './model';
+import { completeTask, deleteTask, hasOpenChildren, moveContext, newTask, normalizeData, palette, seedData, uid, upsertTask, visibleTasks, type Context, type Data, type Task } from './model';
 import { supabase } from './supabase';
 
 const LOCAL_KEY = 'mortal.demo.v1';
@@ -213,7 +213,22 @@ export default function App() {
         <section><h3>Account</h3><p>{demo ? 'Local demo. Saved in this browser.' : session?.user.email}</p>
           {demo ? <button className="text-button" onClick={() => { setSettings(false); setAuthOpen(true); }}>Sign in / create account <ArrowRight size={16}/></button> : <button className="text-button" disabled={busy} onClick={async () => { const result = await supabase!.auth.signOut(); if (result.error) setNotice(result.error.message); else setSettings(false); }}><LogOut size={16}/> Sign out</button>}
         </section>
-        <section><h3>Contexts</h3><div className="settings-contexts">{data.contexts.map(c => <button key={c.id} className="nav-pill" style={contextStyle(c.color)} onClick={() => { setSettings(false); setContextEdit(c); }}>{c.emoji && <span>{c.emoji}</span>}{c.name}</button>)}<button className="icon-button" aria-label="New context" disabled={!loaded || busy} onClick={() => { setSettings(false); newContext(); }}><Plus size={18}/></button></div></section>
+        <section>
+          <h3>Contexts</h3>
+          <div className="settings-contexts">
+            {data.contexts.map((context, index) => <div className="context-order-row" key={context.id}>
+              <button className="nav-pill context-edit-pill" style={contextStyle(context.color)} onClick={() => { setSettings(false); setContextEdit(context); }}>
+                {context.emoji && <span>{context.emoji}</span>}{context.name}
+              </button>
+              <div className="context-order-controls">
+                <button className="icon-button" disabled={busy || index === 0} aria-label={`Move ${context.name} earlier`} onClick={() => void save(moveContext(data, context.id, -1))}><ArrowUp size={16}/></button>
+                <button className="icon-button" disabled={busy || index === data.contexts.length - 1} aria-label={`Move ${context.name} later`} onClick={() => void save(moveContext(data, context.id, 1))}><ArrowDown size={16}/></button>
+              </div>
+            </div>)}
+          </div>
+          <button className="text-button add-context-button" disabled={!loaded || busy} onClick={() => { setSettings(false); newContext(); }}><Plus size={16}/> Add context</button>
+          {notice && <p className="form-error" role="alert">{notice}</p>}
+        </section>
         <section><h3>iPhone home screen</h3><p>Open Mortal in Safari. Tap Share → Add to Home Screen. Leave “Open as Web App” on if shown.</p></section>
         <section className="settings-export"><button className="text-button" disabled={!loaded} onClick={exportData}><ArrowDownToLine size={16}/> Export data</button><span className="keyboard-help">N to add · / to search</span></section>
       </div>

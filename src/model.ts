@@ -70,3 +70,13 @@ export function upsertTask(data: Data, task: Task): Data {
   const tasks = exists ? data.tasks.map(t => t.id === task.id ? task : t) : [task, ...data.tasks];
   return { ...data, tasks: tasks.map(t => t.id === task.parentId && !task.completed ? { ...t, completed: false, completedAt: null } : t) };
 }
+
+export function moveContext(data: Data, id: string, offset: -1 | 1): Data {
+  const from = data.contexts.findIndex(context => context.id === id);
+  const to = from + offset;
+  if (from < 0 || to < 0 || to >= data.contexts.length) return data;
+
+  const contexts = [...data.contexts];
+  [contexts[from], contexts[to]] = [contexts[to], contexts[from]];
+  return { ...data, contexts };
+}
