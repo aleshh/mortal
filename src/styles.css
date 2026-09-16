@@ -61,7 +61,7 @@ h1 { font-size: 27px; font-weight: 700; letter-spacing: -1.1px; line-height: 1.3
 .task-context > span { display: inline-flex; gap: 4px; align-items: center; border-radius: 100px; padding: 3px 8px; font-size: 10px; line-height: 16px; background: color-mix(in srgb, var(--context-color) 17%, white); overflow-wrap: anywhere; }
 .parent-link { min-height: 34px; display: inline-flex; align-items: center; gap: 4px; padding: 3px 0; font-size: 10px; color: var(--muted); text-align: left; overflow-wrap: anywhere; }
 .project-counter { font-size: 10px; font-family: ui-monospace, SFMono-Regular, monospace; color: var(--muted); padding: 4px 0; }
-.task-more { color: #888; margin-right: -11px; }
+.task-more { color: #888; margin-right: 0; }
 .completed .task-title { text-decoration: line-through; color: #888; }
 .completed .task-meta { opacity: .6; }
 .list-footer { padding-top: 13px; }
