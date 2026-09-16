@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type R
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS as DndCSS } from '@dnd-kit/utilities';
-import { ArrowDownToLine, ArrowLeft, ArrowRight, Check, ChevronRight, Folder, GripVertical, House, LogOut, MoreHorizontal, Plus, Search, Settings2, Trash2, X } from 'lucide-react';
+import { ArrowDownToLine, ArrowLeft, ArrowRight, Check, ChevronRight, Folder, House, LogOut, MoreHorizontal, Plus, Search, Settings2, Trash2, X } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
 import { completeTask, deleteTask, hasOpenChildren, newTask, normalizeData, palette, reorderContexts, reorderTasks, seedData, uid, upsertTask, visibleTasks, type Context, type Data, type Task } from './model';
 import { supabase } from './supabase';
@@ -58,11 +58,11 @@ function SortableTaskRow({ task, data, busy, reorderEnabled, onComplete, onOpen,
   };
 
   return <div ref={setNodeRef} style={style} className={`task-row ${task.completed ? 'completed' : ''} ${isDragging ? 'dragging' : ''}`}>
-    <button className={`drag-handle ${reorderEnabled ? '' : 'disabled'}`} disabled={!reorderEnabled} aria-label={`Reorder ${task.title}`} {...attributes} {...listeners}><GripVertical size={18}/></button>
     <button className={`check-target ${task.completed ? 'checked' : ''}`} disabled={busy || (!task.completed && blocked)} title={blocked ? 'Complete subtasks first' : task.completed ? 'Reopen' : 'Complete'} aria-label={`${task.completed ? 'Reopen' : 'Complete'} ${task.title}`} onClick={onComplete}><span className={`checkbox ${blocked ? 'blocked' : ''}`}>{task.completed ? <Check size={13}/> : blocked ? <Folder size={12}/> : null}</span></button>
     <div className="task-content">
       <button className="task-title" onClick={task.project ? onOpenProject : onOpen}>{task.title}{task.project && <ChevronRight size={15}/>}</button>
     </div>
+    <button className={`drag-zone ${reorderEnabled ? '' : 'disabled'}`} disabled={!reorderEnabled} aria-label={`Reorder ${task.title}`} title={reorderEnabled ? 'Drag to reorder' : undefined} {...attributes} {...listeners}/>
     <button className="icon-button task-more" aria-label={`Edit ${task.title}`} onClick={onOpen}><MoreHorizontal size={19}/></button>
   </div>;
 }
@@ -81,10 +81,10 @@ function SortableContextRow({ context, busy, reorderEnabled, onEdit }: {
   };
 
   return <div ref={setNodeRef} style={style} className={`context-order-row ${isDragging ? 'dragging' : ''}`}>
-    <button className="drag-handle context-drag-handle" disabled={busy || !reorderEnabled} aria-label={`Reorder ${context.name}`} {...attributes} {...listeners}><GripVertical size={18}/></button>
     <button className="nav-pill context-edit-pill" style={contextStyle(context.color)} onClick={onEdit}>
       {context.emoji && <span>{context.emoji}</span>}{context.name}
     </button>
+    <button className={`drag-zone context-drag-zone ${reorderEnabled ? '' : 'disabled'}`} disabled={busy || !reorderEnabled} aria-label={`Reorder ${context.name}`} title={reorderEnabled ? 'Drag to reorder' : undefined} {...attributes} {...listeners}/>
   </div>;
 }
 
