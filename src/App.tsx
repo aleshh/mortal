@@ -356,8 +356,11 @@ function ContextEditor({ context, data, busy, error, onClose, onSave, onDelete }
     <form className="editor-form" onSubmit={e => { e.preventDefault(); if (!duplicate) void onSave({ ...draft, name: draft.name.trim() }); }}>
       <label>Name<input required maxLength={40} value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })}/></label>
       {duplicate && <p className="form-error">This context already exists.</p>}
-      <div className="form-columns"><label>Emoji <span className="optional">optional</span><input maxLength={12} value={draft.emoji} onChange={e => setDraft({ ...draft, emoji: e.target.value })}/></label><label>Color<input type="color" value={draft.color} onChange={e => setDraft({ ...draft, color: e.target.value })}/></label></div>
-      <div className="swatches">{palette.map(color => <button key={color} type="button" aria-label={`Choose ${color}`} aria-pressed={draft.color === color} style={{ background: color }} onClick={() => setDraft({ ...draft, color })}>{draft.color === color && <Check size={16}/>}</button>)}</div>
+      <div className="form-columns"><label>Emoji <span className="optional">optional</span><input maxLength={12} value={draft.emoji} onChange={e => setDraft({ ...draft, emoji: e.target.value })}/></label><label>Color<span className="color-field" style={contextStyle(draft.color)}><span className="color-field-preview"/><input className="color-input" aria-label="Choose a custom context color" type="color" value={draft.color} onChange={e => setDraft({ ...draft, color: e.target.value })}/></span></label></div>
+      <div className="swatches">{palette.map(color => <button key={color} type="button" aria-label={`Choose ${color}`} aria-pressed={draft.color === color} style={contextStyle(color)} onClick={() => setDraft({ ...draft, color })}>{draft.color === color && <Check size={15}/>}</button>)}</div>
+      <div className="context-preview">
+        <span className="nav-pill context-preview-pill" style={contextStyle(draft.color)}>{draft.emoji && <span>{draft.emoji}</span>}{draft.name.trim() || 'Context'}</span>
+      </div>
       {error && <p className="form-error" role="alert">{error}</p>}
       <div className="modal-actions">{exists && <button type="button" className="icon-button danger" aria-label="Delete context" onClick={() => setConfirm(true)}><Trash2 size={18}/></button>}<div className="action-spacer"/><button className="primary-button" disabled={busy || duplicate || !draft.name.trim()}>{busy ? 'Saving…' : exists ? 'Save' : 'Add context'}</button></div>
     </form>

@@ -1,7 +1,7 @@
 export type Context = { id: string; name: string; color: string; emoji: string };
 export type Task = { id: string; title: string; contexts: string[]; project: boolean; parentId: string | null; completed: boolean; createdAt: string; completedAt: string | null };
 export type Data = { tasks: Task[]; contexts: Context[] };
-export const palette = ['#65836b', '#c59155', '#738caf', '#a982a1', '#b77766', '#699a99', '#a69a50'];
+export const palette = ['#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#00b8d9', '#007aff', '#5856d6', '#af52de', '#ff2d55'];
 export const uid = () => crypto.randomUUID();
 export const newTask = (title: string, patch: Partial<Task> = {}): Task => ({ id: uid(), title: title.trim(), contexts: [], project: false, parentId: null, completed: false, createdAt: new Date().toISOString(), completedAt: patch.completed ? new Date().toISOString() : null, ...patch });
 export function hasOpenChildren(task: Task, tasks: Task[]): boolean { return tasks.some(t => t.parentId === task.id && !t.completed); }

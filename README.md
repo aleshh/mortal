@@ -42,7 +42,7 @@ Reference: [Supabase password auth](https://supabase.com/docs/guides/auth/passwo
 - Task details show creation and completion timestamps. Reopening clears the completion timestamp; completing again records the new time. Older completed tasks with no recorded completion timestamp show “Not recorded” instead of an invented date.
 - Add tasks directly in the current list. On a context page they inherit that context; on a project page they become subtasks. In Projects the add field creates a project.
 - Tap a task title or its ⋯ button to edit it. Projects open to their subtasks; use their ⋯ button or page settings icon to edit details.
-- Tasks can have zero or more contexts. Contexts have automatically assigned, editable colors and optional emoji. Edit a context by tapping its pill, or drag the empty space after it to reorder contexts in Settings (⋯); their saved order controls the persistent header pills.
+- Tasks can have zero or more contexts. Contexts use vivid source colors mixed into pale pill backgrounds, with an optional emoji and a live preview in the editor. Edit a context by tapping its pill, or drag the empty space after it to reorder contexts in Settings (⋯); their saved order controls the persistent header pills.
 - A task can be promoted to a project in its editor. Promoting a subtask makes it a top-level project. Projects are one level deep in the UI.
 - Projects with incomplete subtasks appear only in Projects. Their subtasks appear in All and their own context pages.
 - When all subtasks are complete, the project appears in All, its contexts, and Projects. Complete the parent explicitly.
