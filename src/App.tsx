@@ -6,6 +6,15 @@ import { supabase } from './supabase';
 
 const LOCAL_KEY = 'mortal.demo.v1';
 const empty: Data = { tasks: [], contexts: [] };
+type PublicRoute = 'landing' | 'login' | 'register';
+function getPublicRoute(): PublicRoute {
+  if (window.location.hash === '#/login') return 'login';
+  if (window.location.hash === '#/register') return 'register';
+  return 'landing';
+}
+function setPublicRoute(route: PublicRoute) {
+  window.location.hash = route === 'landing' ? '' : `#/${route}`;
+}
 function localData(): Data {
   try { const raw = localStorage.getItem(LOCAL_KEY); return raw ? normalizeData(JSON.parse(raw)) : seedData(); }
   catch { return seedData(); }
@@ -31,6 +40,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(!!supabase);
+  const [publicRoute, setPublicRouteState] = useState<PublicRoute>(getPublicRoute);
   const [demo, setDemo] = useState(!supabase);
   const [data, setData] = useState<Data>(() => supabase ? empty : localData());
   const [loaded, setLoaded] = useState(!supabase);
@@ -53,6 +63,11 @@ export default function App() {
   const searchRef = useRef<HTMLInputElement>(null);
   const quickRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    const updateRoute = () => setPublicRouteState(getPublicRoute());
+    window.addEventListener('hashchange', updateRoute);
+    return () => window.removeEventListener('hashchange', updateRoute);
+  }, []);
   useEffect(() => {
     if (!supabase) return;
     let active = true;
@@ -155,10 +170,7 @@ export default function App() {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   if (authLoading) return <p className="loading" role="status">Loading…</p>;
-  if (!demo && !session) return <main className="auth-page">
-    <h1 className="wordmark">mortal</h1><AuthForm onDone={() => setAuthOpen(false)}/>
-    <button className="text-button demo-entry" onClick={() => { setDemo(true); setLoaded(true); }}>Try the local demo <ArrowRight size={16}/></button>
-  </main>;
+  if (!demo && !session) return <PublicPage route={publicRoute} onDemo={() => { setDemo(true); setLoaded(true); }}/>;
 
   return <div className="app-shell">
     <header className="header">
@@ -280,8 +292,37 @@ function ContextEditor({ context, data, busy, error, onClose, onSave, onDelete }
     {confirm && <div className="delete-confirm"><p>Delete this context? Its tasks will stay.</p><button className="secondary-button" onClick={() => setConfirm(false)}>Cancel</button><button className="danger-button" disabled={busy} onClick={() => void onDelete()}>Delete</button></div>}
   </Modal>;
 }
-function AuthForm({ onDone, recovery = false }: { onDone: () => void; recovery?: boolean }) {
-  const [mode, setMode] = useState<'login' | 'signup' | 'reset' | 'recovery'>(recovery ? 'recovery' : 'login');
+function PublicPage({ route, onDemo }: { route: PublicRoute; onDemo: () => void }) {
+  if (route === 'landing') return <main className="landing-page">
+    <header className="public-header">
+      <a className="wordmark" href="#">mortal</a>
+      <nav aria-label="Account">
+        <a className="public-link" href="#/login">Log in</a>
+        <a className="public-button" href="#/register">Create account</a>
+      </nav>
+    </header>
+    <section className="landing-hero">
+      <p className="landing-kicker">TASKS, PROJECTS, CONTEXTS</p>
+      <h1><span>Know what you can do</span><span>where you are.</span></h1>
+      <p className="landing-copy">Mortal is a small task manager organized around contexts. Keep simple tasks loose, turn bigger ones into projects, and let finished work get out of the way.</p>
+      <div className="landing-actions">
+        <a className="public-button large" href="#/register">Create account <ArrowRight size={17}/></a>
+        <a className="public-link large" href="#/login">Log in</a>
+      </div>
+      <p className="landing-footnote">No due dates. No priorities. No score.</p>
+    </section>
+  </main>;
+
+  const initialMode = route === 'register' ? 'signup' : 'login';
+  return <main className="auth-page">
+    <a className="wordmark" href="#">mortal</a>
+    <AuthForm key={route} initialMode={initialMode} onNavigate={mode => setPublicRoute(mode === 'signup' ? 'register' : 'login')} onDone={() => setPublicRoute('landing')}/>
+    <button className="text-button demo-entry" onClick={onDemo}>Try the local demo <ArrowRight size={16}/></button>
+  </main>;
+}
+
+function AuthForm({ onDone, recovery = false, initialMode = 'login', onNavigate }: { onDone: () => void; recovery?: boolean; initialMode?: 'login' | 'signup'; onNavigate?: (mode: 'login' | 'signup') => void }) {
+  const [mode, setMode] = useState<'login' | 'signup' | 'reset' | 'recovery'>(recovery ? 'recovery' : initialMode);
   const [email, setEmail] = useState(''); const [password, setPassword] = useState(''); const [message, setMessage] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
   useEffect(() => { if (recovery) setMode('recovery'); }, [recovery]);
   async function submit(e: FormEvent) {
@@ -293,5 +334,8 @@ function AuthForm({ onDone, recovery = false }: { onDone: () => void; recovery?:
       if (mode === 'recovery') { const result = await supabase.auth.updateUser({ password }); if (result.error) throw result.error; onDone(); }
     } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
   }
-  return <form className="auth-form editor-form" onSubmit={submit}><div><h2>{mode === 'login' ? 'Sign in' : mode === 'signup' ? 'Create account' : mode === 'reset' ? 'Reset password' : 'New password'}</h2><p className="muted">{mode === 'login' ? 'Sign in to sync your tasks.' : mode === 'signup' ? 'Verify your email to get started.' : 'Choose a secure password with at least 8 characters.'}</p></div>{mode !== 'recovery' && <label>Email<input type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)}/></label>}{mode !== 'reset' && <label>Password<input type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={8} required value={password} onChange={e => setPassword(e.target.value)}/></label>}{error && <p className="form-error" role="alert">{error}</p>}{message && <p className="form-success" role="status">{message}</p>}<button className="primary-button" disabled={busy}>{busy ? 'Please wait…' : mode === 'login' ? 'Sign in' : mode === 'signup' ? 'Create account' : mode === 'reset' ? 'Send reset link' : 'Update password'}<ArrowRight size={16}/></button>{mode !== 'recovery' && <><button type="button" className="text-button" onClick={() => { setMode(mode === 'signup' ? 'login' : 'signup'); setError(''); setMessage(''); }}>{mode === 'signup' ? 'Already have an account? Sign in' : 'New here? Create an account'}</button><button type="button" className="text-button" onClick={() => { setMode(mode === 'reset' ? 'login' : 'reset'); setError(''); setMessage(''); }}>{mode === 'reset' ? 'Back to sign in' : 'Forgot your password?'}</button>{mode === 'signup' && message && <button type="button" className="text-button" disabled={busy} onClick={async () => { setBusy(true); const result = await supabase!.auth.resend({ type: 'signup', email, options: { emailRedirectTo: window.location.origin } }); if (result.error) setError(result.error.message); else setMessage('Verification email sent. Check your inbox.'); setBusy(false); }}>Resend verification email</button>}</>}</form>;
+  function switchMode(next: 'login' | 'signup') {
+    setMode(next); setError(''); setMessage(''); onNavigate?.(next);
+  }
+  return <form className="auth-form editor-form" onSubmit={submit}><div><h2>{mode === 'login' ? 'Log in' : mode === 'signup' ? 'Create account' : mode === 'reset' ? 'Reset password' : 'New password'}</h2><p className="muted">{mode === 'login' ? 'Log in to your tasks.' : mode === 'signup' ? 'Verify your email to get started.' : 'Choose a secure password with at least 8 characters.'}</p></div>{mode !== 'recovery' && <label>Email<input type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)}/></label>}{mode !== 'reset' && <label>Password<input type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={8} required value={password} onChange={e => setPassword(e.target.value)}/></label>}{error && <p className="form-error" role="alert">{error}</p>}{message && <p className="form-success" role="status">{message}</p>}<button className="primary-button" disabled={busy}>{busy ? 'Please wait…' : mode === 'login' ? 'Log in' : mode === 'signup' ? 'Create account' : mode === 'reset' ? 'Send reset link' : 'Update password'}<ArrowRight size={16}/></button>{mode !== 'recovery' && <><button type="button" className="text-button" onClick={() => switchMode(mode === 'signup' ? 'login' : 'signup')}>{mode === 'signup' ? 'Already have an account? Log in' : 'New here? Create an account'}</button><button type="button" className="text-button" onClick={() => { if (mode === 'reset') switchMode('login'); else { setMode('reset'); setError(''); setMessage(''); } }}>{mode === 'reset' ? 'Back to log in' : 'Forgot your password?'}</button>{mode === 'signup' && message && <button type="button" className="text-button" disabled={busy} onClick={async () => { setBusy(true); const result = await supabase!.auth.resend({ type: 'signup', email, options: { emailRedirectTo: window.location.origin } }); if (result.error) setError(result.error.message); else setMessage('Verification email sent. Check your inbox.'); setBusy(false); }}>Resend verification email</button>}</>}</form>;
 }

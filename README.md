@@ -2,6 +2,8 @@
 
 A minimal, mobile-first task manager built with React, TypeScript, Vite, and Supabase. White background, persistent context pills, no sidebar. No notes, status categories, due dates, or priority scores.
 
+Signed-out visitors see a brief public landing page. Login and registration use `#/login` and `#/register`, so direct links work on static hosting without rewrite rules.
+
 ## Run locally
 
 ```sh

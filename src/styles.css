@@ -128,6 +128,22 @@ h1 { font-size: 27px; font-weight: 700; letter-spacing: -1.1px; line-height: 1.3
 .form-error { color: #a42525; background: #fff7f7; }
 .form-success { color: #356c35; background: #f6faf6; }
 .loading { padding: 35px; font-size: 13px; color: var(--muted); }
+.landing-page { min-height: 100dvh; padding: max(18px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(30px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); display: flex; flex-direction: column; }
+.public-header { width: 100%; max-width: 980px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid #181818; padding-bottom: 14px; }
+.public-header nav { display: flex; align-items: center; gap: 15px; }
+.public-header .wordmark { color: inherit; text-decoration: none; }
+.public-link { display: inline-flex; min-height: 42px; align-items: center; color: #181818; font-size: 12px; text-underline-offset: 4px; }
+.public-button { display: inline-flex; min-height: 42px; align-items: center; justify-content: center; gap: 9px; padding: 9px 14px; border: 1px solid #181818; background: #181818; color: #fff; font-size: 12px; text-decoration: none; }
+.landing-hero { width: 100%; max-width: 980px; margin: auto; padding: 60px 0 90px; }
+.landing-kicker { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 10px; letter-spacing: .09em; margin-bottom: 24px; }
+.landing-hero h1 { max-width: 900px; font-size: clamp(42px, 7.5vw, 80px); line-height: .98; letter-spacing: -.06em; font-weight: 750; }
+.landing-hero h1 span { display: block; }
+.landing-copy { max-width: 540px; margin-top: 32px; font-size: 17px; line-height: 1.55; color: #444; }
+.landing-actions { display: flex; align-items: center; gap: 22px; margin-top: 34px; }
+.public-button.large, .public-link.large { min-height: 48px; font-size: 14px; }
+.public-button.large { padding-inline: 18px; }
+.landing-footnote { margin-top: 42px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 10px; color: var(--muted); }
+.auth-page > .wordmark { display: inline-block; color: inherit; text-decoration: none; }
 @media (min-width: 700px) {
   .header-inner { padding: 14px 32px 18px; }
   .brand-row { margin-bottom: 9px; }
@@ -157,6 +173,15 @@ h1 { font-size: 27px; font-weight: 700; letter-spacing: -1.1px; line-height: 1.3
   .main { padding-inline: max(12px, env(safe-area-inset-left)); }
   .nav-pill { padding-inline: 10px; font-size: 11px; }
   .modal { padding: 16px; }
+}
+@media (max-width: 520px) {
+  .public-header nav { gap: 12px; }
+  .public-header .public-link { display: none; }
+  .landing-hero { padding: 54px 0 70px; }
+  .landing-copy { font-size: 15px; }
+}
+@media (min-width: 600px) {
+  .landing-hero h1 span { white-space: nowrap; }
 }
 
 /* Compact list navigation and task details. */
