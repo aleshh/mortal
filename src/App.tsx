@@ -40,16 +40,18 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   </dialog>;
 }
 
-function SortableTaskRow({ task, data, busy, reorderEnabled, onComplete, onOpen, onOpenProject }: {
+function SortableTaskRow({ task, data, busy, reorderEnabled, showContexts, onComplete, onOpen, onOpenProject }: {
   task: Task;
   data: Data;
   busy: boolean;
   reorderEnabled: boolean;
+  showContexts: boolean;
   onComplete: () => void;
   onOpen: () => void;
   onOpenProject: () => void;
 }) {
   const blocked = hasOpenChildren(task, data.tasks);
+  const contexts = showContexts ? data.contexts.filter(context => task.contexts.includes(context.id)) : [];
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id, disabled: !reorderEnabled });
   const style: CSSProperties = {
     transform: DndCSS.Transform.toString(transform),
@@ -61,6 +63,11 @@ function SortableTaskRow({ task, data, busy, reorderEnabled, onComplete, onOpen,
     <button className={`check-target ${task.completed ? 'checked' : ''}`} disabled={busy || (!task.completed && blocked)} title={blocked ? 'Complete subtasks first' : task.completed ? 'Reopen' : 'Complete'} aria-label={`${task.completed ? 'Reopen' : 'Complete'} ${task.title}`} onClick={onComplete}><span className={`checkbox ${blocked ? 'blocked' : ''}`}>{task.completed ? <Check size={13}/> : blocked ? <Folder size={12}/> : null}</span></button>
     <div className="task-content">
       <button className="task-title" onClick={task.project ? onOpenProject : onOpen}>{task.title}{task.project && <ChevronRight size={15}/>}</button>
+      {contexts.length > 0 && <div className="task-meta">
+        {contexts.map(context => <span key={context.id} className={`task-context ${context.emoji ? 'emoji-only' : ''}`} style={contextStyle(context.color)} title={context.name}>
+          {context.emoji ? <><span aria-hidden="true">{context.emoji}</span><span className="sr-only">{context.name}</span></> : context.name}
+        </span>)}
+      </div>}
     </div>
     <button className={`drag-zone ${reorderEnabled ? '' : 'disabled'}`} disabled={!reorderEnabled} aria-label={`Reorder ${task.title}`} title={reorderEnabled ? 'Drag to reorder' : undefined} {...attributes} {...listeners}/>
     <button className="icon-button task-more" aria-label={`Edit ${task.title}`} onClick={onOpen}><MoreHorizontal size={19}/></button>
@@ -276,6 +283,7 @@ export default function App() {
             data={data}
             busy={busy}
             reorderEnabled={reorderEnabled}
+            showContexts={view === 'all'}
             onComplete={() => void save(completeTask(data, task.id), true)}
             onOpen={() => setEditing(task)}
             onOpenProject={() => navigate(`project:${task.id}`)}
