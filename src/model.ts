@@ -1,9 +1,9 @@
 export type Context = { id: string; name: string; color: string; emoji: string };
-export type Task = { id: string; title: string; contexts: string[]; project: boolean; parentId: string | null; completed: boolean; createdAt: string; completedAt: string | null };
+export type Task = { id: string; title: string; contexts: string[]; project: boolean; emoji: string; nextAction: boolean; parentId: string | null; completed: boolean; createdAt: string; completedAt: string | null };
 export type Data = { tasks: Task[]; contexts: Context[] };
 export const palette = ['#ff3b30', '#ff9500', '#ffcc00', '#34c759', '#00b8d9', '#007aff', '#5856d6', '#af52de', '#ff2d55'];
 export const uid = () => crypto.randomUUID();
-export const newTask = (title: string, patch: Partial<Task> = {}): Task => ({ id: uid(), title: title.trim(), contexts: [], project: false, parentId: null, completed: false, createdAt: new Date().toISOString(), completedAt: patch.completed ? new Date().toISOString() : null, ...patch });
+export const newTask = (title: string, patch: Partial<Task> = {}): Task => ({ id: uid(), title: title.trim(), contexts: [], project: false, emoji: '', nextAction: false, parentId: null, completed: false, createdAt: new Date().toISOString(), completedAt: patch.completed ? new Date().toISOString() : null, ...patch });
 export function hasOpenChildren(task: Task, tasks: Task[]): boolean { return tasks.some(t => t.parentId === task.id && !t.completed); }
 export function isActionable(task: Task, tasks: Task[]): boolean { return !task.completed && !hasOpenChildren(task, tasks); }
 export function visibleTasks(data: Data, view: string, showCompleted = false): Task[] {
@@ -12,7 +12,7 @@ export function visibleTasks(data: Data, view: string, showCompleted = false): T
     if (view === 'projects') return t.project;
     if (view.startsWith('project:')) return t.parentId === view.slice(8);
     if (!t.completed && !isActionable(t, data.tasks)) return false;
-    if (view === 'all') return true;
+    if (view === 'all') return !t.parentId || t.nextAction;
     if (view.startsWith('context:')) return t.contexts.includes(view.slice(8));
     return false;
   });
@@ -61,6 +61,7 @@ export function seedData(): Data {
 export function normalizeData(data: Data): Data {
   return { contexts: data.contexts, tasks: data.tasks.map(task => ({
     id: task.id, title: task.title, contexts: task.contexts, project: task.project,
+    emoji: task.emoji ?? '', nextAction: task.nextAction ?? false,
     parentId: task.parentId, completed: task.completed, createdAt: task.createdAt, completedAt: task.completed ? task.completedAt ?? null : null,
   })) };
 }
@@ -103,4 +104,22 @@ export function reorderTasks(data: Data, orderedIds: string[]): Data {
   const tasks = [...data.tasks];
   positions.forEach((position, index) => { tasks[position] = orderedTasks[index]!; });
   return { ...data, tasks };
+}
+
+export function moveProjectTask(data: Data, projectId: string, taskId: string, nextAction: boolean, overId?: string): Data {
+  const task = data.tasks.find(t => t.id === taskId && t.parentId === projectId);
+  if (!task || task.completed) return data;
+  const siblings = data.tasks.filter(t => t.parentId === projectId && !t.completed && t.nextAction === nextAction);
+  const from = siblings.findIndex(t => t.id === taskId);
+  const to = siblings.findIndex(t => t.id === overId);
+  const orderedIds = siblings.filter(t => t.id !== taskId).map(t => t.id);
+  orderedIds.splice(to < 0 ? orderedIds.length : to, 0, taskId);
+  if (from >= 0 && taskId === overId) return data;
+  const updated = { ...data, tasks: data.tasks.map(t => t.id === taskId ? { ...t, nextAction } : t) };
+  return reorderTasks(updated, orderedIds);
+}
+
+export function taskProjectEmoji(task: Task, data: Data, view: string): string {
+  const project = task.project ? task : data.tasks.find(t => t.id === task.parentId && t.project);
+  return project && view !== `project:${project.id}` ? project.emoji : '';
 }

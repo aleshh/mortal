@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
-import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import { DndContext, DragOverlay, KeyboardSensor, PointerSensor, closestCenter, pointerWithin, useDroppable, useSensor, useSensors, type CollisionDetection, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS as DndCSS } from '@dnd-kit/utilities';
 import { ArrowDownToLine, ArrowLeft, ArrowRight, Check, ChevronRight, Folder, House, LogOut, MoreHorizontal, Plus, Search, Settings2, Trash2, X } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
-import { completeTask, deleteTask, hasOpenChildren, newTask, normalizeData, palette, reorderContexts, reorderTasks, seedData, uid, upsertTask, visibleTasks, type Context, type Data, type Task } from './model';
+import { completeTask, deleteTask, hasOpenChildren, moveProjectTask, taskProjectEmoji, newTask, normalizeData, palette, reorderContexts, reorderTasks, seedData, uid, upsertTask, visibleTasks, type Context, type Data, type Task } from './model';
 import { supabase } from './supabase';
 
 const LOCAL_KEY = 'mortal.demo.v1';
@@ -40,16 +40,18 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   </dialog>;
 }
 
-function SortableTaskRow({ task, data, busy, reorderEnabled, showContexts, onComplete, onOpen, onOpenProject }: {
+function SortableTaskRow({ task, data, busy, reorderEnabled, showContexts, view, onComplete, onOpen, onOpenProject }: {
   task: Task;
   data: Data;
   busy: boolean;
   reorderEnabled: boolean;
   showContexts: boolean;
+  view: string;
   onComplete: () => void;
   onOpen: () => void;
   onOpenProject: () => void;
 }) {
+  const projectEmoji = taskProjectEmoji(task, data, view);
   const blocked = hasOpenChildren(task, data.tasks);
   const contexts = showContexts ? data.contexts.filter(context => task.contexts.includes(context.id)) : [];
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id, disabled: !reorderEnabled });
@@ -62,7 +64,7 @@ function SortableTaskRow({ task, data, busy, reorderEnabled, showContexts, onCom
   return <div ref={setNodeRef} style={style} className={`task-row ${task.completed ? 'completed' : ''} ${isDragging ? 'dragging' : ''}`}>
     <button className={`check-target ${task.completed ? 'checked' : ''}`} disabled={busy || (!task.completed && blocked)} title={blocked ? 'Complete subtasks first' : task.completed ? 'Reopen' : 'Complete'} aria-label={`${task.completed ? 'Reopen' : 'Complete'} ${task.title}`} onClick={onComplete}><span className={`checkbox ${blocked ? 'blocked' : ''}`}>{task.completed ? <Check size={13}/> : blocked ? <Folder size={12}/> : null}</span></button>
     <div className="task-content">
-      <button className="task-title" onClick={task.project ? onOpenProject : onOpen}>{task.title}{task.project && <ChevronRight size={15}/>}</button>
+      <button className="task-title" onClick={task.project ? onOpenProject : onOpen}>{projectEmoji && <span className="project-emoji">{projectEmoji} </span>}{task.title}{task.project && <ChevronRight size={15}/>}</button>
       {contexts.length > 0 && <div className="task-meta">
         {contexts.map(context => <span key={context.id} className={`task-context ${context.emoji ? 'emoji-only' : ''}`} style={contextStyle(context.color)} title={context.name}>
           {context.emoji ? <><span aria-hidden="true">{context.emoji}</span><span className="sr-only">{context.name}</span></> : context.name}
@@ -72,6 +74,32 @@ function SortableTaskRow({ task, data, busy, reorderEnabled, showContexts, onCom
     <button className={`drag-zone ${reorderEnabled ? '' : 'disabled'}`} disabled={!reorderEnabled} aria-label={`Reorder ${task.title}`} title={reorderEnabled ? 'Drag to reorder' : undefined} {...attributes} {...listeners}/>
     <button className="icon-button task-more" aria-label={`Edit ${task.title}`} onClick={onOpen}><MoreHorizontal size={19}/></button>
   </div>;
+}
+
+function TaskDragPreview({ task }: { task: Task }) {
+  return <div className="task-row task-drag-preview">
+    <span className="check-target" aria-hidden="true"><span className="checkbox"/></span>
+    <div className="task-content"><span className="task-title">{task.title}</span></div>
+    <span className="drag-zone" aria-hidden="true"/>
+    <span className="icon-button task-more" aria-hidden="true"><MoreHorizontal size={19}/></span>
+  </div>;
+}
+
+const projectCollision: CollisionDetection = args => {
+  const hits = pointerWithin(args);
+  const taskHits = hits.filter(hit => !String(hit.id).startsWith('project-section:'));
+  return taskHits.length ? taskHits : hits.length ? hits : closestCenter(args);
+};
+
+function ProjectTaskSection({ nextAction, tasks, disabled, children }: { nextAction: boolean; tasks: Task[]; disabled: boolean; children: ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `project-section:${nextAction ? 'next' : 'remaining'}`, disabled });
+  return <section ref={setNodeRef} className={`project-task-section ${isOver ? 'drop-active' : ''}`}>
+    <h2>{nextAction ? 'Next actions (show on home)' : 'Other tasks'}</h2>
+    <SortableContext items={tasks.map(task => task.id)} strategy={verticalListSortingStrategy}>
+      <div className="task-list">{children}</div>
+    </SortableContext>
+    {!tasks.length && <p className="section-empty">{nextAction ? 'Drag tasks here to show them on home.' : 'Drag tasks here to keep them in this project.'}</p>}
+  </section>;
 }
 
 function SortableContextRow({ context, busy, reorderEnabled, onEdit }: {
@@ -111,6 +139,7 @@ export default function App() {
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [quickTitle, setQuickTitle] = useState('');
+  const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const [editing, setEditing] = useState<Task | null>(null);
   const [contextEdit, setContextEdit] = useState<Context | null>(null);
   const [settings, setSettings] = useState(false);
@@ -210,7 +239,7 @@ export default function App() {
     .filter(t => !query || `${t.title} ${data.contexts.filter(c => t.contexts.includes(c.id)).map(c => c.name).join(' ')}`.toLowerCase().includes(query.toLowerCase()))
     .sort((a, b) => Number(a.completed) - Number(b.completed));
   const completedCount = visibleTasks(data, view, true).filter(t => t.completed).length;
-  const reorderEnabled = loaded && !busy && !query && !showCompleted && tasks.length > 1;
+  const reorderEnabled = loaded && !busy && !query && !showCompleted && (activeProject ? tasks.length > 0 : tasks.length > 1);
   const contextReorderEnabled = loaded && !busy && data.contexts.length > 1;
   function newContext() { setContextEdit({ id: uid(), name: '', color: palette[data.contexts.length % palette.length], emoji: '' }); }
   function capturePatch(): Partial<Task> {
@@ -227,8 +256,19 @@ export default function App() {
     task = { ...task, title: task.title.trim() };
     if (await save(upsertTask(data, task))) setEditing(null);
   }
+  function startTaskDrag(event: DragStartEvent) {
+    if (activeProject) setDraggingTaskId(String(event.active.id));
+  }
   function finishTaskDrag(event: DragEndEvent) {
+    setDraggingTaskId(null);
     if (!reorderEnabled || !event.over || event.active.id === event.over.id) return;
+    if (activeProject) {
+      const overId = String(event.over.id);
+      const target = tasks.find(task => task.id === overId);
+      const nextAction = overId === 'project-section:next' ? true : overId === 'project-section:remaining' ? false : target?.nextAction;
+      if (nextAction !== undefined) void save(moveProjectTask(data, activeProject.id, String(event.active.id), nextAction, target?.id));
+      return;
+    }
     const from = tasks.findIndex(task => task.id === event.active.id);
     const to = tasks.findIndex(task => task.id === event.over!.id);
     if (from < 0 || to < 0) return;
@@ -242,6 +282,13 @@ export default function App() {
     if (from < 0 || to < 0) return;
     const orderedIds = arrayMove(data.contexts, from, to).map(context => context.id);
     void save(reorderContexts(data, orderedIds));
+  }
+
+  function renderTask(task: Task) {
+    return <SortableTaskRow key={task.id} task={task} data={data} busy={busy}
+      reorderEnabled={reorderEnabled} showContexts={view === 'all'} view={view}
+      onComplete={() => void save(completeTask(data, task.id), true)}
+      onOpen={() => setEditing(task)} onOpenProject={() => navigate(`project:${task.id}`)}/>;
   }
 
   function exportData() {
@@ -269,26 +316,23 @@ export default function App() {
     </header>
     <main className="main">
       <h1 className="sr-only">{title}</h1>
-      {activeProject && <div className="project-breadcrumb"><button className="text-button" onClick={() => navigate('projects')} aria-label="Back to projects"><ArrowLeft size={15}/></button><span>{activeProject.title}</span><button className="icon-button" aria-label="Project details" onClick={() => setEditing(activeProject)}><Settings2 size={16}/></button></div>}
+      {activeProject && <div className="project-breadcrumb"><button className="text-button" onClick={() => navigate('projects')} aria-label="Back to projects"><ArrowLeft size={15}/></button><span>{activeProject.emoji && `${activeProject.emoji} `}{activeProject.title}</span><button className="icon-button" aria-label="Project details" onClick={() => setEditing(activeProject)}><Settings2 size={16}/></button></div>}
       {searchOpen && <div className="search-field"><Search size={17}/><input ref={searchRef} type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search this list" aria-label="Search this list"/><button className="icon-button" aria-label="Close search" onClick={() => { setSearchOpen(false); setQuery(''); }}><X size={17}/></button></div>}
       <form className="quick-add" onSubmit={capture}>
         <input ref={quickRef} value={quickTitle} onChange={e => setQuickTitle(e.target.value)} maxLength={240} placeholder={view === 'projects' ? 'Add a project' : activeProject ? 'Add a subtask' : 'Add a task'} aria-label={view === 'projects' ? 'New project title' : 'New task title'} disabled={!loaded} enterKeyHint="done"/>
         <button className="add-button" type="submit" disabled={!quickTitle.trim() || !loaded || busy} aria-label={view === 'projects' ? 'Add project' : 'Add task'}><Plus size={21}/></button>
       </form>
-      {!loaded ? <div className="empty-state" role="status">{loadError ? <>Couldn’t load tasks. <button className="text-button" onClick={() => window.location.reload()}>Retry</button></> : 'Loading…'}</div> : tasks.length === 0 ? <p className="empty-state">{query ? 'No matches.' : 'No tasks.'}</p> : <DndContext sensors={dragSensors} collisionDetection={closestCenter} onDragEnd={finishTaskDrag}>
-        <SortableContext items={tasks.map(task => task.id)} strategy={verticalListSortingStrategy}>
-          <div className="task-list">{tasks.map(task => <SortableTaskRow
-            key={task.id}
-            task={task}
-            data={data}
-            busy={busy}
-            reorderEnabled={reorderEnabled}
-            showContexts={view === 'all'}
-            onComplete={() => void save(completeTask(data, task.id), true)}
-            onOpen={() => setEditing(task)}
-            onOpenProject={() => navigate(`project:${task.id}`)}
-          />)}</div>
-        </SortableContext>
+      {!loaded ? <div className="empty-state" role="status">{loadError ? <>Couldn’t load tasks. <button className="text-button" onClick={() => window.location.reload()}>Retry</button></> : 'Loading…'}</div> : <DndContext sensors={dragSensors} collisionDetection={activeProject ? projectCollision : closestCenter} onDragStart={startTaskDrag} onDragCancel={() => setDraggingTaskId(null)} onDragEnd={finishTaskDrag}>
+        {activeProject ? [true, false].map(nextAction => {
+          const sectionTasks = tasks.filter(task => task.nextAction === nextAction);
+          return <ProjectTaskSection key={String(nextAction)} nextAction={nextAction} tasks={sectionTasks} disabled={!reorderEnabled}>
+            {sectionTasks.map(renderTask)}
+          </ProjectTaskSection>;
+        }) : <SortableContext items={tasks.map(task => task.id)} strategy={verticalListSortingStrategy}>
+          <div className="task-list">{tasks.map(renderTask)}</div>
+          {!tasks.length && <p className="empty-state">{query ? 'No matches.' : 'No tasks.'}</p>}
+        </SortableContext>}
+        {activeProject && <DragOverlay>{draggingTaskId ? <TaskDragPreview task={tasks.find(task => task.id === draggingTaskId)!}/> : null}</DragOverlay>}
       </DndContext>}
       <div className="list-footer"><button className="text-button" aria-pressed={showCompleted} onClick={() => setShowCompleted(!showCompleted)}>{showCompleted ? 'Hide' : 'Show'} completed{completedCount > 0 ? ` (${completedCount})` : ''}</button></div>
     </main>
@@ -338,11 +382,13 @@ function TaskEditor({ task, data, busy, error, onClose, onSave, onDelete }: { ta
   return <Modal title={draft.project ? 'Edit project' : 'Edit task'} onClose={onClose}>
     <form onSubmit={e => { e.preventDefault(); void onSave(draft); }} className="editor-form">
       <label>Title<input required maxLength={240} value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })}/></label>
+      {draft.project && <label>Emoji <span className="optional">optional</span><input maxLength={12} value={draft.emoji} onChange={e => setDraft({ ...draft, emoji: e.target.value.trim() })}/></label>}
       <fieldset><legend>Contexts</legend><div className="context-picker">
         {data.contexts.map(c => <button type="button" key={c.id} style={contextStyle(c.color)} aria-pressed={draft.contexts.includes(c.id)} className={`nav-pill ${draft.contexts.includes(c.id) ? 'active' : 'unchosen'}`} onClick={() => setDraft({ ...draft, contexts: draft.contexts.includes(c.id) ? draft.contexts.filter(id => id !== c.id) : [...draft.contexts, c.id] })}>{c.emoji && <span>{c.emoji}</span>}{c.name}{draft.contexts.includes(c.id) && <Check size={13}/>}</button>)}
         {!data.contexts.length && <p className="muted">No contexts yet.</p>}
       </div></fieldset>
-      {!draft.project && <label>Project<select value={draft.parentId ?? ''} onChange={e => setDraft({ ...draft, parentId: e.target.value || null })}><option value="">None</option>{data.tasks.filter(t => t.project && t.id !== task.id && (!t.completed || t.id === draft.parentId)).map(p => <option key={p.id} value={p.id}>{p.title}</option>)}</select></label>}
+      {!draft.project && <label>Project<select value={draft.parentId ?? ''} onChange={e => setDraft({ ...draft, parentId: e.target.value || null, nextAction: false })}><option value="">None</option>{data.tasks.filter(t => t.project && t.id !== task.id && (!t.completed || t.id === draft.parentId)).map(p => <option key={p.id} value={p.id}>{p.title}</option>)}</select></label>}
+      {!draft.project && draft.parentId && <label className="project-switch"><span>Next action (show on home)</span><input type="checkbox" role="switch" checked={draft.nextAction} onChange={e => setDraft({ ...draft, nextAction: e.target.checked })}/></label>}
       <label className="project-switch"><span>Make this a project</span><input type="checkbox" role="switch" checked={draft.project} disabled={children.length > 0} onChange={e => setDraft({ ...draft, project: e.target.checked, parentId: e.target.checked ? null : draft.parentId })}/></label>
       {children.length > 0 && <p className="muted">{children.length} subtasks. Remove or move them before converting to a task.</p>}
       <dl className="task-dates">

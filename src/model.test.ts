@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { completeTask, deleteTask, moveContext, newTask, normalizeData, reorderContexts, reorderTasks, upsertTask, visibleTasks, type Data } from './model';
-function fixture(): Data { return { contexts: [{ id: 'home', name: 'Home', color: '#000000', emoji: '' }], tasks: [newTask('Project', { id: 'p', project: true, contexts: ['home'] }), newTask('Step', { id: 's', parentId: 'p', contexts: ['home'] }), newTask('Unsorted', { id: 'u' })] }; }
+import { completeTask, deleteTask, moveContext, moveProjectTask, taskProjectEmoji, newTask, normalizeData, reorderContexts, reorderTasks, upsertTask, visibleTasks, type Data } from './model';
+function fixture(): Data { return { contexts: [{ id: 'home', name: 'Home', color: '#000000', emoji: '' }], tasks: [newTask('Project', { id: 'p', project: true, contexts: ['home'] }), newTask('Step', { id: 's', parentId: 'p', nextAction: true, contexts: ['home'] }), newTask('Unsorted', { id: 'u' })] }; }
 const ids = (data: Data, view: string, completed = false) => visibleTasks(data, view, completed).map(t => t.id);
 test('a project with open steps appears only in Projects, not action or context lists', () => { const d = fixture(); assert.deepEqual(ids(d, 'projects'), ['p']); assert.deepEqual(ids(d, 'all'), ['s', 'u']); assert.deepEqual(ids(d, 'context:home'), ['s']); assert.deepEqual(ids(d, 'project:p'), ['s']); });
 test('finishing the last step returns the project to main and context lists', () => { const d = completeTask(fixture(), 's'); assert.deepEqual(ids(d, 'all'), ['p', 'u']); assert.deepEqual(ids(d, 'context:home'), ['p']); assert.deepEqual(ids(d, 'projects'), ['p']); });
@@ -44,7 +44,7 @@ test('older completed tasks do not get fabricated completion dates', () => {
 
 test('new tasks go first in All, contexts, and project lists; editing preserves order', () => {
   const d = fixture();
-  const task = newTask('Newest', { contexts: ['home'], parentId: 'p' });
+  const task = newTask('Newest', { contexts: ['home'], parentId: 'p', nextAction: true });
   const added = upsertTask(d, task);
   for (const view of ['all', 'context:home', 'project:p']) assert.equal(ids(added, view)[0], task.id);
   const edited = upsertTask(added, { ...d.tasks[2], title: 'Edited' });
@@ -106,4 +106,64 @@ test('invalid reorder requests leave task data unchanged', () => {
   const data = fixture();
   assert.equal(reorderTasks(data, ['s', 's']), data);
   assert.equal(reorderTasks(data, ['missing']), data);
+});
+
+
+test('project tasks only appear on home when promoted, while contexts retain all steps', () => {
+  const data = fixture();
+  const step = newTask('Later', { id: 'later', parentId: 'p', contexts: ['home'] });
+  data.tasks.push(step);
+  assert.deepEqual(ids(data, 'all'), ['s', 'u']);
+  assert.deepEqual(ids(data, 'context:home'), ['s', 'later']);
+  assert.deepEqual(ids(data, 'project:p'), ['s', 'later']);
+  const promoted = moveProjectTask(data, 'p', 'later', true, 's');
+  assert.deepEqual(ids(promoted, 'all'), ['later', 'u', 's']);
+  const demoted = moveProjectTask(promoted, 'p', 'later', false);
+  assert.deepEqual(ids(demoted, 'all'), ['u', 's']);
+  assert.ok(ids(demoted, 'project:p').includes('later'));
+  assert.ok(!ids(completeTask(demoted, 'later'), 'all', true).includes('later'));
+});
+
+test('moving the only project task works with empty sections and survives reload', () => {
+  const data = fixture();
+  const demoted = moveProjectTask(data, 'p', 's', false);
+  assert.deepEqual(ids(demoted, 'all'), ['u']);
+  const promoted = normalizeData(JSON.parse(JSON.stringify(moveProjectTask(demoted, 'p', 's', true))));
+  assert.deepEqual(ids(promoted, 'all'), ['s', 'u']);
+  assert.equal(moveProjectTask(data, 'other', 's', false), data);
+  assert.equal(moveProjectTask(data, 'p', 'u', true), data);
+});
+
+test('section reordering preserves other tasks and promotion flags', () => {
+  const data = fixture();
+  data.tasks.push(newTask('Second', { id: 'second', parentId: 'p', nextAction: true }));
+  const moved = moveProjectTask(data, 'p', 's', true, 'second');
+  assert.deepEqual(ids(moved, 'project:p'), ['second', 's']);
+  assert.deepEqual(moved.tasks.find(t => t.id === 'u'), data.tasks.find(t => t.id === 'u'));
+  assert.equal(moved.tasks.find(t => t.id === 's')?.nextAction, true);
+});
+
+test('older tasks default to the project backlog and new project fields persist', () => {
+  const data = fixture();
+  const legacy = { ...data.tasks[1] } as Partial<typeof data.tasks[1]>;
+  delete legacy.nextAction;
+  delete legacy.emoji;
+  data.tasks[1] = legacy as typeof data.tasks[1];
+  data.tasks[0].emoji = '🏡';
+  const restored = normalizeData(JSON.parse(JSON.stringify(data)));
+  assert.equal(restored.tasks[1].nextAction, false);
+  assert.equal(restored.tasks[1].emoji, '');
+  assert.equal(restored.tasks[0].emoji, '🏡');
+  assert.deepEqual(ids(restored, 'all'), ['u']);
+});
+
+test('project emoji prefixes tasks only outside their own project view', () => {
+  const data = fixture();
+  data.tasks[0].emoji = '🏡';
+  for (const view of ['all', 'context:home', 'project:other']) {
+    assert.equal(taskProjectEmoji(data.tasks[1], data, view), '🏡');
+  }
+  assert.equal(taskProjectEmoji(data.tasks[1], data, 'project:p'), '');
+  assert.equal(taskProjectEmoji(data.tasks[0], data, 'projects'), '🏡');
+  assert.equal(taskProjectEmoji(data.tasks[2], data, 'all'), '');
 });
