@@ -251,6 +251,7 @@ export default function App() {
   const reorderEnabled = loaded && !busy && !query && !showCompleted && (sectionedTasks ? tasks.length > 0 : tasks.length > 1);
   const contextReorderEnabled = loaded && !busy && data.contexts.length > 1;
   function newContext() { setContextEdit({ id: uid(), name: '', color: palette[data.contexts.length % palette.length], emoji: '' }); }
+  function closeContextEditor() { setContextEdit(null); setSettings(true); }
   function capturePatch(): Partial<Task> {
     return { contexts: activeContext ? [activeContext.id] : activeProject?.contexts ?? [], parentId: activeProject?.id ?? null, project: view === 'projects' };
   }
@@ -367,12 +368,12 @@ export default function App() {
     {editing && <TaskEditor key={editing.id} task={editing} data={data} busy={busy} error={notice} onClose={() => setEditing(null)} onSave={saveTask} onDelete={async () => {
       if (await save(deleteTask(data, editing.id), true)) { if (activeProject?.id === editing.id) navigate('projects'); setEditing(null); }
     }}/>}
-    {contextEdit && <ContextEditor key={contextEdit.id} context={contextEdit} data={data} busy={busy} error={notice} onClose={() => setContextEdit(null)} onSave={async c => {
+    {contextEdit && <ContextEditor key={contextEdit.id} context={contextEdit} data={data} busy={busy} error={notice} onClose={closeContextEditor} onSave={async c => {
       const exists = data.contexts.some(x => x.id === c.id);
-      if (await save({ ...data, contexts: exists ? data.contexts.map(x => x.id === c.id ? c : x) : [...data.contexts, c] })) setContextEdit(null);
+      if (await save({ ...data, contexts: exists ? data.contexts.map(x => x.id === c.id ? c : x) : [...data.contexts, c] })) closeContextEditor();
     }} onDelete={async () => {
       if (await save({ contexts: data.contexts.filter(c => c.id !== contextEdit.id), tasks: data.tasks.map(t => ({ ...t, contexts: t.contexts.filter(id => id !== contextEdit.id) })) }, true)) {
-        if (activeContext?.id === contextEdit.id) navigate('all'); setContextEdit(null);
+        if (activeContext?.id === contextEdit.id) navigate('all'); closeContextEditor();
       }
     }}/>}
     {settings && <Modal title="Settings" onClose={() => setSettings(false)}>
@@ -381,7 +382,7 @@ export default function App() {
           {demo ? <button className="text-button" onClick={() => { setSettings(false); setAuthOpen(true); }}>Sign in / create account <ArrowRight size={16}/></button> : <button className="text-button" disabled={busy} onClick={async () => { const result = await supabase!.auth.signOut(); if (result.error) setNotice(result.error.message); else setSettings(false); }}><LogOut size={16}/> Sign out</button>}
         </section>
         <section>
-          <h3>Contexts</h3>
+          <h3>Contexts <span className="settings-heading-hint">(drag to rearrange)</span></h3>
           <DndContext sensors={dragSensors} collisionDetection={closestCenter} onDragEnd={finishContextDrag}>
             <SortableContext items={data.contexts.map(context => context.id)} strategy={verticalListSortingStrategy}>
               <div className="settings-contexts">
