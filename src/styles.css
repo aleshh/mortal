@@ -204,6 +204,7 @@ h1 { font-size: 27px; font-weight: 700; letter-spacing: -1.1px; line-height: 1.3
 .nav-pill { min-height: 30px; padding: 5px 11px; }
 .context-picker .nav-pill { min-height: 34px; }
 .main { padding-top: 20px; }
+.main.sectioned-main { padding-top: 8px; }
 .search-field input { padding: 7px 0; }
 .search-field .icon-button { min-height: 36px; }
 .task-row { padding-block: 3px; }
@@ -222,6 +223,7 @@ h1 { font-size: 27px; font-weight: 700; letter-spacing: -1.1px; line-height: 1.3
 }
 
 .task-section { min-height: 100px; margin: 16px 0 24px; border-radius: 8px; transition: background .15s; }
+.sectioned-main > .task-section:first-of-type:not(.compact-empty) { margin-top: 8px; }
 .task-section h2 { margin: 0; padding: 10px 0; font-size: 12px; font-weight: 500; color: var(--muted); }
 .task-section.drop-active { background: #f0f0ed; outline: 1px dashed #aaa; outline-offset: 6px; }
 .task-section.compact-empty { min-height: 0; margin-top: -4px; margin-bottom: 8px; }

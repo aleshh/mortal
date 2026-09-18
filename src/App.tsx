@@ -342,7 +342,7 @@ export default function App() {
         </div>
       </div>
     </header>
-    <main className="main">
+    <main className={`main ${sectionedTasks ? 'sectioned-main' : ''}`}>
       <h1 className="sr-only">{title}</h1>
       {activeProject && <div className="project-breadcrumb"><button className="text-button" onClick={() => navigate('projects')} aria-label="Back to projects"><ArrowLeft size={15}/></button><span>{activeProject.emoji && `${activeProject.emoji} `}{activeProject.title}</span><button className="icon-button" aria-label="Project details" onClick={() => setEditing(activeProject)}><Settings2 size={16}/></button></div>}
       {searchOpen && <div className="search-field"><Search size={17}/><input ref={searchRef} type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search this list" aria-label="Search this list"/><button className="icon-button" aria-label="Close search" onClick={() => { setSearchOpen(false); setQuery(''); }}><X size={17}/></button></div>}
