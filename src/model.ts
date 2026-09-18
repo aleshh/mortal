@@ -119,6 +119,17 @@ export function moveProjectTask(data: Data, projectId: string, taskId: string, n
   return reorderTasks(updated, orderedIds);
 }
 
+export function moveAllTask(data: Data, taskId: string, today: boolean, overId?: string): Data {
+  const task = visibleTasks(data, 'all').find(t => t.id === taskId);
+  if (!task) return data;
+  const siblings = visibleTasks(data, 'all').filter(t => t.id !== taskId && t.nextAction === today);
+  const to = siblings.findIndex(t => t.id === overId);
+  const orderedIds = siblings.map(t => t.id);
+  orderedIds.splice(to < 0 ? orderedIds.length : to, 0, taskId);
+  const updated = { ...data, tasks: data.tasks.map(t => t.id === taskId ? { ...t, nextAction: today } : t) };
+  return reorderTasks(updated, orderedIds);
+}
+
 export function taskProjectEmoji(task: Task, data: Data, view: string): string {
   const project = task.project ? task : data.tasks.find(t => t.id === task.parentId && t.project);
   return project && view !== `project:${project.id}` ? project.emoji : '';

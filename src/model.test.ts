@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { completeTask, deleteTask, moveContext, moveProjectTask, taskProjectEmoji, newTask, normalizeData, reorderContexts, reorderTasks, upsertTask, visibleTasks, type Data } from './model';
+import { completeTask, deleteTask, moveAllTask, moveContext, moveProjectTask, taskProjectEmoji, newTask, normalizeData, reorderContexts, reorderTasks, upsertTask, visibleTasks, type Data } from './model';
 function fixture(): Data { return { contexts: [{ id: 'home', name: 'Home', color: '#000000', emoji: '' }], tasks: [newTask('Project', { id: 'p', project: true, contexts: ['home'] }), newTask('Step', { id: 's', parentId: 'p', nextAction: true, contexts: ['home'] }), newTask('Unsorted', { id: 'u' })] }; }
 const ids = (data: Data, view: string, completed = false) => visibleTasks(data, view, completed).map(t => t.id);
 test('a project with open steps appears only in Projects, not action or context lists', () => { const d = fixture(); assert.deepEqual(ids(d, 'projects'), ['p']); assert.deepEqual(ids(d, 'all'), ['s', 'u']); assert.deepEqual(ids(d, 'context:home'), ['s']); assert.deepEqual(ids(d, 'project:p'), ['s']); });
@@ -141,6 +141,19 @@ test('section reordering preserves other tasks and promotion flags', () => {
   assert.deepEqual(ids(moved, 'project:p'), ['second', 's']);
   assert.deepEqual(moved.tasks.find(t => t.id === 'u'), data.tasks.find(t => t.id === 'u'));
   assert.equal(moved.tasks.find(t => t.id === 's')?.nextAction, true);
+});
+
+test('All tasks can move between Today and Other tasks while preserving project visibility rules', () => {
+  const data = fixture();
+  const today = moveAllTask(data, 'u', true, 's');
+  assert.deepEqual(ids(today, 'all'), ['u', 's']);
+  assert.equal(today.tasks.find(t => t.id === 'u')?.nextAction, true);
+
+  const later = moveAllTask(today, 's', false);
+  assert.deepEqual(ids(later, 'all'), ['u']);
+  assert.equal(later.tasks.find(t => t.id === 's')?.nextAction, false);
+  assert.deepEqual(ids(later, 'project:p'), ['s']);
+  assert.equal(moveAllTask(data, 'p', true), data);
 });
 
 test('older tasks default to the project backlog and new project fields persist', () => {

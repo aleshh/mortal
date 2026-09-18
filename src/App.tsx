@@ -4,7 +4,7 @@ import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, v
 import { CSS as DndCSS } from '@dnd-kit/utilities';
 import { ArrowDownToLine, ArrowLeft, ArrowRight, Check, ChevronRight, Folder, House, LogOut, MoreHorizontal, Plus, Search, Settings2, Trash2, X } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
-import { completeTask, deleteTask, hasOpenChildren, moveProjectTask, taskProjectEmoji, newTask, normalizeData, palette, reorderContexts, reorderTasks, seedData, uid, upsertTask, visibleTasks, type Context, type Data, type Task } from './model';
+import { completeTask, deleteTask, hasOpenChildren, moveAllTask, moveProjectTask, taskProjectEmoji, newTask, normalizeData, palette, reorderContexts, reorderTasks, seedData, uid, upsertTask, visibleTasks, type Context, type Data, type Task } from './model';
 import { supabase } from './supabase';
 
 const LOCAL_KEY = 'mortal.demo.v1';
@@ -85,20 +85,26 @@ function TaskDragPreview({ task }: { task: Task }) {
   </div>;
 }
 
-const projectCollision: CollisionDetection = args => {
+const sectionCollision: CollisionDetection = args => {
   const hits = pointerWithin(args);
-  const taskHits = hits.filter(hit => !String(hit.id).startsWith('project-section:'));
+  const taskHits = hits.filter(hit => !String(hit.id).startsWith('task-section:'));
   return taskHits.length ? taskHits : hits.length ? hits : closestCenter(args);
 };
 
-function ProjectTaskSection({ nextAction, tasks, disabled, children }: { nextAction: boolean; tasks: Task[]; disabled: boolean; children: ReactNode }) {
-  const { setNodeRef, isOver } = useDroppable({ id: `project-section:${nextAction ? 'next' : 'remaining'}`, disabled });
-  return <section ref={setNodeRef} className={`project-task-section ${isOver ? 'drop-active' : ''}`}>
-    <h2>{nextAction ? 'Next actions (show on home)' : 'Other tasks'}</h2>
+function TaskSection({ kind, nextAction, tasks, disabled, topEmpty, hasDraft = false, children }: { kind: 'all' | 'project'; nextAction: boolean; tasks: Task[]; disabled: boolean; topEmpty: boolean; hasDraft?: boolean; children: ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `task-section:${nextAction ? 'next' : 'remaining'}`, disabled });
+  const heading = kind === 'all' && nextAction ? 'Today' : kind === 'project' && nextAction ? 'Next actions (show on home)' : 'Other tasks';
+  const compactEmpty = nextAction && !tasks.length;
+  const hideHeading = !nextAction && topEmpty;
+  const empty = kind === 'all'
+    ? nextAction ? 'Drag tasks here for today.' : 'Drag tasks here to keep them off today.'
+    : nextAction ? 'Drag tasks here to show them on home.' : 'Drag tasks here to keep them in this project.';
+  return <section ref={setNodeRef} className={`task-section ${compactEmpty ? 'compact-empty' : ''} ${hideHeading ? 'heading-hidden' : ''} ${isOver ? 'drop-active' : ''}`}>
+    {compactEmpty ? <h2 className="empty-drop-label">{kind === 'all' ? 'Today' : 'Next actions'} <span>— Drag tasks here</span></h2> : !hideHeading && <h2>{heading}</h2>}
     <SortableContext items={tasks.map(task => task.id)} strategy={verticalListSortingStrategy}>
       <div className="task-list">{children}</div>
     </SortableContext>
-    {!tasks.length && <p className="section-empty">{nextAction ? 'Drag tasks here to show them on home.' : 'Drag tasks here to keep them in this project.'}</p>}
+    {!tasks.length && !hasDraft && !compactEmpty && <p className="section-empty">{empty}</p>}
   </section>;
 }
 
@@ -139,6 +145,7 @@ export default function App() {
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [quickTitle, setQuickTitle] = useState('');
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const [editing, setEditing] = useState<Task | null>(null);
   const [contextEdit, setContextEdit] = useState<Context | null>(null);
@@ -201,12 +208,13 @@ export default function App() {
     function key(e: KeyboardEvent) {
       if (e.metaKey || e.ctrlKey || e.altKey || (e.target as HTMLElement).matches('input, textarea, select') || document.querySelector('dialog[open]')) return;
       if (e.key === '/') { e.preventDefault(); setSearchOpen(true); }
-      if (e.key.toLowerCase() === 'n') { e.preventDefault(); quickRef.current?.focus(); }
+      if (e.key.toLowerCase() === 'n') { e.preventDefault(); setQuickAddOpen(true); }
     }
     document.addEventListener('keydown', key);
     return () => document.removeEventListener('keydown', key);
   }, []);
   useEffect(() => { if (searchOpen) searchRef.current?.focus(); }, [searchOpen]);
+  useEffect(() => { if (quickAddOpen) quickRef.current?.focus(); }, [quickAddOpen, view]);
 
   async function save(next: Data, allowUndo = false): Promise<boolean> {
     if (lock.current || !loaded) return false;
@@ -231,7 +239,7 @@ export default function App() {
       return false;
     } finally { lock.current = false; setBusy(false); }
   }
-  function navigate(next: string) { setView(next); setQuery(''); setSearchOpen(false); setShowCompleted(false); setQuickTitle(''); }
+  function navigate(next: string) { setView(next); setQuery(''); setSearchOpen(false); setShowCompleted(false); setQuickTitle(''); setQuickAddOpen(false); }
   const activeContext = data.contexts.find(c => view === `context:${c.id}`);
   const activeProject = data.tasks.find(t => view === `project:${t.id}`);
   const title = activeContext?.name ?? activeProject?.title ?? (view === 'projects' ? 'Projects' : 'All');
@@ -239,7 +247,8 @@ export default function App() {
     .filter(t => !query || `${t.title} ${data.contexts.filter(c => t.contexts.includes(c.id)).map(c => c.name).join(' ')}`.toLowerCase().includes(query.toLowerCase()))
     .sort((a, b) => Number(a.completed) - Number(b.completed));
   const completedCount = visibleTasks(data, view, true).filter(t => t.completed).length;
-  const reorderEnabled = loaded && !busy && !query && !showCompleted && (activeProject ? tasks.length > 0 : tasks.length > 1);
+  const sectionedTasks = !!activeProject || view === 'all';
+  const reorderEnabled = loaded && !busy && !query && !showCompleted && (sectionedTasks ? tasks.length > 0 : tasks.length > 1);
   const contextReorderEnabled = loaded && !busy && data.contexts.length > 1;
   function newContext() { setContextEdit({ id: uid(), name: '', color: palette[data.contexts.length % palette.length], emoji: '' }); }
   function capturePatch(): Partial<Task> {
@@ -250,14 +259,15 @@ export default function App() {
     const submitted = quickTitle;
     const task = newTask(submitted, capturePatch());
     const next = upsertTask(data, task);
-    if (await save(next)) { setQuickTitle(current => current === submitted ? '' : current); quickRef.current?.focus(); }
+    if (await save(next)) { setQuickTitle(current => current === submitted ? '' : current); setQuickAddOpen(false); }
   }
+  function closeQuickAdd() { setQuickTitle(''); setQuickAddOpen(false); }
   async function saveTask(task: Task) {
     task = { ...task, title: task.title.trim() };
     if (await save(upsertTask(data, task))) setEditing(null);
   }
   function startTaskDrag(event: DragStartEvent) {
-    if (activeProject) setDraggingTaskId(String(event.active.id));
+    if (sectionedTasks) setDraggingTaskId(String(event.active.id));
   }
   function finishTaskDrag(event: DragEndEvent) {
     setDraggingTaskId(null);
@@ -265,8 +275,15 @@ export default function App() {
     if (activeProject) {
       const overId = String(event.over.id);
       const target = tasks.find(task => task.id === overId);
-      const nextAction = overId === 'project-section:next' ? true : overId === 'project-section:remaining' ? false : target?.nextAction;
+      const nextAction = overId === 'task-section:next' ? true : overId === 'task-section:remaining' ? false : target?.nextAction;
       if (nextAction !== undefined) void save(moveProjectTask(data, activeProject.id, String(event.active.id), nextAction, target?.id));
+      return;
+    }
+    if (view === 'all') {
+      const overId = String(event.over.id);
+      const target = tasks.find(task => task.id === overId);
+      const today = overId === 'task-section:next' ? true : overId === 'task-section:remaining' ? false : target?.nextAction;
+      if (today !== undefined) void save(moveAllTask(data, String(event.active.id), today, target?.id));
       return;
     }
     const from = tasks.findIndex(task => task.id === event.active.id);
@@ -289,6 +306,16 @@ export default function App() {
       reorderEnabled={reorderEnabled} showContexts={view === 'all'} view={view}
       onComplete={() => void save(completeTask(data, task.id), true)}
       onOpen={() => setEditing(task)} onOpenProject={() => navigate(`project:${task.id}`)}/>;
+  }
+
+  function renderQuickAdd() {
+    if (!quickAddOpen) return null;
+    const item = view === 'projects' ? 'project' : activeProject ? 'subtask' : 'task';
+    return <form className="task-row inline-add-row" onSubmit={capture}>
+      <span className="check-target" aria-hidden="true"><span className="checkbox"/></span>
+      <input ref={quickRef} value={quickTitle} onChange={e => setQuickTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') closeQuickAdd(); }} maxLength={240} placeholder={`New ${item}`} aria-label={`New ${item} title`} disabled={!loaded || busy} enterKeyHint="done"/>
+      <button className="icon-button" type="button" onClick={closeQuickAdd} aria-label={`Cancel new ${item}`}><X size={17}/></button>
+    </form>;
   }
 
   function exportData() {
@@ -318,24 +345,24 @@ export default function App() {
       <h1 className="sr-only">{title}</h1>
       {activeProject && <div className="project-breadcrumb"><button className="text-button" onClick={() => navigate('projects')} aria-label="Back to projects"><ArrowLeft size={15}/></button><span>{activeProject.emoji && `${activeProject.emoji} `}{activeProject.title}</span><button className="icon-button" aria-label="Project details" onClick={() => setEditing(activeProject)}><Settings2 size={16}/></button></div>}
       {searchOpen && <div className="search-field"><Search size={17}/><input ref={searchRef} type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search this list" aria-label="Search this list"/><button className="icon-button" aria-label="Close search" onClick={() => { setSearchOpen(false); setQuery(''); }}><X size={17}/></button></div>}
-      <form className="quick-add" onSubmit={capture}>
-        <input ref={quickRef} value={quickTitle} onChange={e => setQuickTitle(e.target.value)} maxLength={240} placeholder={view === 'projects' ? 'Add a project' : activeProject ? 'Add a subtask' : 'Add a task'} aria-label={view === 'projects' ? 'New project title' : 'New task title'} disabled={!loaded} enterKeyHint="done"/>
-        <button className="add-button" type="submit" disabled={!quickTitle.trim() || !loaded || busy} aria-label={view === 'projects' ? 'Add project' : 'Add task'}><Plus size={21}/></button>
-      </form>
-      {!loaded ? <div className="empty-state" role="status">{loadError ? <>Couldn’t load tasks. <button className="text-button" onClick={() => window.location.reload()}>Retry</button></> : 'Loading…'}</div> : <DndContext sensors={dragSensors} collisionDetection={activeProject ? projectCollision : closestCenter} onDragStart={startTaskDrag} onDragCancel={() => setDraggingTaskId(null)} onDragEnd={finishTaskDrag}>
-        {activeProject ? [true, false].map(nextAction => {
+      {!loaded ? <div className="empty-state" role="status">{loadError ? <>Couldn’t load tasks. <button className="text-button" onClick={() => window.location.reload()}>Retry</button></> : 'Loading…'}</div> : <DndContext sensors={dragSensors} collisionDetection={sectionedTasks ? sectionCollision : closestCenter} onDragStart={startTaskDrag} onDragCancel={() => setDraggingTaskId(null)} onDragEnd={finishTaskDrag}>
+        {sectionedTasks ? [true, false].map(nextAction => {
           const sectionTasks = tasks.filter(task => task.nextAction === nextAction);
-          return <ProjectTaskSection key={String(nextAction)} nextAction={nextAction} tasks={sectionTasks} disabled={!reorderEnabled}>
+          const topEmpty = !tasks.some(task => task.nextAction);
+          const hasDraft = !nextAction && quickAddOpen;
+          return <TaskSection key={String(nextAction)} kind={activeProject ? 'project' : 'all'} nextAction={nextAction} tasks={sectionTasks} disabled={!reorderEnabled} topEmpty={topEmpty} hasDraft={hasDraft}>
+            {hasDraft && renderQuickAdd()}
             {sectionTasks.map(renderTask)}
-          </ProjectTaskSection>;
+          </TaskSection>;
         }) : <SortableContext items={tasks.map(task => task.id)} strategy={verticalListSortingStrategy}>
-          <div className="task-list">{tasks.map(renderTask)}</div>
-          {!tasks.length && <p className="empty-state">{query ? 'No matches.' : 'No tasks.'}</p>}
+          <div className="task-list">{renderQuickAdd()}{tasks.map(renderTask)}</div>
+          {!tasks.length && !quickAddOpen && <p className="empty-state">{query ? 'No matches.' : 'No tasks.'}</p>}
         </SortableContext>}
-        {activeProject && <DragOverlay>{draggingTaskId ? <TaskDragPreview task={tasks.find(task => task.id === draggingTaskId)!}/> : null}</DragOverlay>}
+        {sectionedTasks && <DragOverlay>{draggingTaskId ? <TaskDragPreview task={tasks.find(task => task.id === draggingTaskId)!}/> : null}</DragOverlay>}
       </DndContext>}
       <div className="list-footer"><button className="text-button" aria-pressed={showCompleted} onClick={() => setShowCompleted(!showCompleted)}>{showCompleted ? 'Hide' : 'Show'} completed{completedCount > 0 ? ` (${completedCount})` : ''}</button></div>
     </main>
+    <button className="floating-add-button" disabled={!loaded || busy} aria-label={view === 'projects' ? 'Add project' : activeProject ? 'Add subtask' : 'Add task'} aria-expanded={quickAddOpen} onClick={() => { setQuickAddOpen(true); requestAnimationFrame(() => quickRef.current?.focus()); }}><Plus size={24}/></button>
     {(notice || undo) && <div className="toast" role="status"><span>{notice || 'Saved.'}</span>{undo && !notice && <button className="text-button" disabled={busy} onClick={() => void save(undo)}>Undo</button>}<button className="icon-button" aria-label="Dismiss" onClick={() => { setNotice(''); setUndo(null); }}><X size={16}/></button></div>}
     {editing && <TaskEditor key={editing.id} task={editing} data={data} busy={busy} error={notice} onClose={() => setEditing(null)} onSave={saveTask} onDelete={async () => {
       if (await save(deleteTask(data, editing.id), true)) { if (activeProject?.id === editing.id) navigate('projects'); setEditing(null); }
@@ -388,7 +415,7 @@ function TaskEditor({ task, data, busy, error, onClose, onSave, onDelete }: { ta
         {!data.contexts.length && <p className="muted">No contexts yet.</p>}
       </div></fieldset>
       {!draft.project && <label>Project<select value={draft.parentId ?? ''} onChange={e => setDraft({ ...draft, parentId: e.target.value || null, nextAction: false })}><option value="">None</option>{data.tasks.filter(t => t.project && t.id !== task.id && (!t.completed || t.id === draft.parentId)).map(p => <option key={p.id} value={p.id}>{p.title}</option>)}</select></label>}
-      {!draft.project && draft.parentId && <label className="project-switch"><span>Next action (show on home)</span><input type="checkbox" role="switch" checked={draft.nextAction} onChange={e => setDraft({ ...draft, nextAction: e.target.checked })}/></label>}
+      {!draft.project && <label className="project-switch"><span>{draft.parentId ? 'Next action (show on home)' : 'Today'}</span><input type="checkbox" role="switch" checked={draft.nextAction} onChange={e => setDraft({ ...draft, nextAction: e.target.checked })}/></label>}
       <label className="project-switch"><span>Make this a project</span><input type="checkbox" role="switch" checked={draft.project} disabled={children.length > 0} onChange={e => setDraft({ ...draft, project: e.target.checked, parentId: e.target.checked ? null : draft.parentId })}/></label>
       {children.length > 0 && <p className="muted">{children.length} subtasks. Remove or move them before converting to a task.</p>}
       <dl className="task-dates">
