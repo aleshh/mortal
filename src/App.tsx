@@ -301,7 +301,7 @@ export default function App() {
 
   return <div className="app-shell">
     <header className="header">
-      <div className="header-inner">
+      <div className={`header-inner ${data.contexts.length > 2 ? 'many-contexts' : ''}`}>
         <nav className="navigation" aria-label="Tasks and contexts">
           <button className={`nav-pill neutral ${view === 'all' ? 'active' : ''}`} aria-current={view === 'all' ? 'page' : undefined} onClick={() => navigate('all')}><House size={14}/>All</button>
           <button className={`nav-pill neutral ${view === 'projects' || activeProject ? 'active' : ''}`} aria-current={view === 'projects' || activeProject ? 'page' : undefined} onClick={() => navigate('projects')}><Folder size={14}/>Projects</button>
