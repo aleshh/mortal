@@ -40,13 +40,15 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   </dialog>;
 }
 
-function SortableTaskRow({ task, data, busy, reorderEnabled, showContexts, view, onComplete, onOpen, onOpenProject }: {
+function SortableTaskRow({ task, data, busy, reorderEnabled, showContexts, view, visuallyCompleted, leavingPhase, onComplete, onOpen, onOpenProject }: {
   task: Task;
   data: Data;
   busy: boolean;
   reorderEnabled: boolean;
   showContexts: boolean;
   view: string;
+  visuallyCompleted: boolean;
+  leavingPhase?: 'waiting' | 'collapsing';
   onComplete: () => void;
   onOpen: () => void;
   onOpenProject: () => void;
@@ -57,22 +59,24 @@ function SortableTaskRow({ task, data, busy, reorderEnabled, showContexts, view,
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id, disabled: !reorderEnabled });
   const style: CSSProperties = {
     transform: DndCSS.Transform.toString(transform),
-    transition,
+    transition: transition ? `${transition}, grid-template-rows 250ms ease, opacity 250ms ease` : undefined,
     zIndex: isDragging ? 2 : undefined,
   };
 
-  return <div ref={setNodeRef} style={style} className={`task-row ${task.completed ? 'completed' : ''} ${isDragging ? 'dragging' : ''}`}>
-    <button className={`check-target ${task.completed ? 'checked' : ''}`} disabled={busy || (!task.completed && blocked)} title={blocked ? 'Complete subtasks first' : task.completed ? 'Reopen' : 'Complete'} aria-label={`${task.completed ? 'Reopen' : 'Complete'} ${task.title}`} onClick={onComplete}><span className={`checkbox ${blocked ? 'blocked' : ''}`}>{task.completed ? <Check size={13}/> : blocked ? <Folder size={12}/> : null}</span></button>
-    <div className="task-content">
-      <button className="task-title" onClick={task.project ? onOpenProject : onOpen}>{projectEmoji && <span className="project-emoji">{projectEmoji} </span>}{task.title}{task.project && <ChevronRight size={15}/>}</button>
-      {contexts.length > 0 && <div className="task-meta">
-        {contexts.map(context => <span key={context.id} className={`task-context ${context.emoji ? 'emoji-only' : ''}`} style={contextStyle(context.color)} title={context.name}>
-          {context.emoji ? <><span aria-hidden="true">{context.emoji}</span><span className="sr-only">{context.name}</span></> : context.name}
-        </span>)}
-      </div>}
+  return <div ref={setNodeRef} style={style} inert={leavingPhase === 'collapsing'} className={`task-shell ${leavingPhase === 'collapsing' ? 'collapsing' : ''} ${isDragging ? 'dragging' : ''}`}>
+    <div className={`task-row ${visuallyCompleted ? 'completed' : ''} ${isDragging ? 'dragging' : ''}`}>
+      <button className={`check-target ${visuallyCompleted ? 'checked' : ''}`} disabled={busy || leavingPhase === 'collapsing' || (!visuallyCompleted && blocked)} title={blocked ? 'Complete subtasks first' : visuallyCompleted ? 'Reopen' : 'Complete'} aria-label={`${visuallyCompleted ? 'Reopen' : 'Complete'} ${task.title}`} onClick={onComplete}><span className={`checkbox ${blocked ? 'blocked' : ''}`}>{visuallyCompleted ? <Check size={13}/> : blocked ? <Folder size={12}/> : null}</span></button>
+      <div className="task-content">
+        <button className="task-title" onClick={task.project ? onOpenProject : onOpen}>{projectEmoji && <span className="project-emoji">{projectEmoji} </span>}{task.title}{task.project && <ChevronRight size={15}/>}</button>
+        {contexts.length > 0 && <div className="task-meta">
+          {contexts.map(context => <span key={context.id} className={`task-context ${context.emoji ? 'emoji-only' : ''}`} style={contextStyle(context.color)} title={context.name}>
+            {context.emoji ? <><span aria-hidden="true">{context.emoji}</span><span className="sr-only">{context.name}</span></> : context.name}
+          </span>)}
+        </div>}
+      </div>
+      <button className={`drag-zone ${reorderEnabled ? '' : 'disabled'}`} disabled={!reorderEnabled} aria-label={`Reorder ${task.title}`} title={reorderEnabled ? 'Drag to reorder' : undefined} {...attributes} {...listeners}/>
+      <button className="icon-button task-more" aria-label={`Edit ${task.title}`} onClick={onOpen}><MoreHorizontal size={19}/></button>
     </div>
-    <button className={`drag-zone ${reorderEnabled ? '' : 'disabled'}`} disabled={!reorderEnabled} aria-label={`Reorder ${task.title}`} title={reorderEnabled ? 'Drag to reorder' : undefined} {...attributes} {...listeners}/>
-    <button className="icon-button task-more" aria-label={`Edit ${task.title}`} onClick={onOpen}><MoreHorizontal size={19}/></button>
   </div>;
 }
 
@@ -147,6 +151,9 @@ export default function App() {
   const [quickTitle, setQuickTitle] = useState('');
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
+  const [leaving, setLeaving] = useState<Record<string, 'waiting' | 'collapsing'>>({});
+  const leavingTimers = useRef(new Map<string, number[]>());
+  const leavingEpoch = useRef(0);
   const [editing, setEditing] = useState<Task | null>(null);
   const [contextEdit, setContextEdit] = useState<Context | null>(null);
   const [settings, setSettings] = useState(false);
@@ -215,6 +222,36 @@ export default function App() {
   }, []);
   useEffect(() => { if (searchOpen) searchRef.current?.focus(); }, [searchOpen]);
   useEffect(() => { if (quickAddOpen) quickRef.current?.focus(); }, [quickAddOpen, view]);
+  useEffect(() => () => { for (const timers of leavingTimers.current.values()) timers.forEach(clearTimeout); }, []);
+
+  function clearLeaving(id: string) {
+    leavingTimers.current.get(id)?.forEach(clearTimeout);
+    leavingTimers.current.delete(id);
+    setLeaving(current => { const next = { ...current }; delete next[id]; return next; });
+  }
+
+  function clearAllLeaving() {
+    leavingEpoch.current += 1;
+    for (const timers of leavingTimers.current.values()) timers.forEach(clearTimeout);
+    leavingTimers.current.clear();
+    setLeaving({});
+  }
+
+  async function toggleTaskComplete(task: Task) {
+    if (leaving[task.id]) clearLeaving(task.id);
+    if (task.completed || showCompleted) { await save(completeTask(data, task.id), true); return; }
+    const startedAt = performance.now();
+    const epoch = leavingEpoch.current;
+    setLeaving(current => ({ ...current, [task.id]: 'waiting' }));
+    if (!await save(completeTask(data, task.id), true)) { clearLeaving(task.id); return; }
+    if (epoch !== leavingEpoch.current) return;
+    const wait = window.setTimeout(() => {
+      setLeaving(current => current[task.id] ? { ...current, [task.id]: 'collapsing' } : current);
+      const finish = window.setTimeout(() => clearLeaving(task.id), window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 250);
+      leavingTimers.current.set(task.id, [finish]);
+    }, Math.max(0, 1000 - (performance.now() - startedAt)));
+    leavingTimers.current.set(task.id, [wait]);
+  }
 
   async function save(next: Data, allowUndo = false): Promise<boolean> {
     if (lock.current || !loaded) return false;
@@ -239,16 +276,17 @@ export default function App() {
       return false;
     } finally { lock.current = false; setBusy(false); }
   }
-  function navigate(next: string) { setView(next); setQuery(''); setSearchOpen(false); setShowCompleted(false); setQuickTitle(''); setQuickAddOpen(false); }
+  function navigate(next: string) { clearAllLeaving(); setView(next); setQuery(''); setSearchOpen(false); setShowCompleted(false); setQuickTitle(''); setQuickAddOpen(false); }
   const activeContext = data.contexts.find(c => view === `context:${c.id}`);
   const activeProject = data.tasks.find(t => view === `project:${t.id}`);
   const title = activeContext?.name ?? activeProject?.title ?? (view === 'projects' ? 'Projects' : 'All');
-  const tasks = visibleTasks(data, view, showCompleted)
+  const tasks = visibleTasks(data, view, showCompleted || Object.keys(leaving).length > 0)
+    .filter(t => showCompleted || !t.completed || !!leaving[t.id])
     .filter(t => !query || `${t.title} ${data.contexts.filter(c => t.contexts.includes(c.id)).map(c => c.name).join(' ')}`.toLowerCase().includes(query.toLowerCase()))
-    .sort((a, b) => Number(a.completed) - Number(b.completed));
+    .sort((a, b) => Number(a.completed && !leaving[a.id]) - Number(b.completed && !leaving[b.id]));
   const completedCount = visibleTasks(data, view, true).filter(t => t.completed).length;
   const sectionedTasks = !!activeProject || view === 'all';
-  const reorderEnabled = loaded && !busy && !query && !showCompleted && (sectionedTasks ? tasks.length > 0 : tasks.length > 1);
+  const reorderEnabled = loaded && !busy && !query && !showCompleted && !Object.keys(leaving).length && (sectionedTasks ? tasks.length > 0 : tasks.length > 1);
   const contextReorderEnabled = loaded && !busy && data.contexts.length > 1;
   function newContext() { setContextEdit({ id: uid(), name: '', color: palette[data.contexts.length % palette.length], emoji: '' }); }
   function closeContextEditor() { setContextEdit(null); setSettings(true); }
@@ -305,7 +343,8 @@ export default function App() {
   function renderTask(task: Task) {
     return <SortableTaskRow key={task.id} task={task} data={data} busy={busy}
       reorderEnabled={reorderEnabled} showContexts={view === 'all'} view={view}
-      onComplete={() => void save(completeTask(data, task.id), true)}
+      visuallyCompleted={task.completed || !!leaving[task.id]} leavingPhase={leaving[task.id]}
+      onComplete={() => void toggleTaskComplete(task)}
       onOpen={() => setEditing(task)} onOpenProject={() => navigate(`project:${task.id}`)}/>;
   }
 
@@ -361,10 +400,10 @@ export default function App() {
         </SortableContext>}
         {sectionedTasks && <DragOverlay>{draggingTaskId ? <TaskDragPreview task={tasks.find(task => task.id === draggingTaskId)!}/> : null}</DragOverlay>}
       </DndContext>}
-      <div className="list-footer"><button className="text-button" aria-pressed={showCompleted} onClick={() => setShowCompleted(!showCompleted)}>{showCompleted ? 'Hide' : 'Show'} completed{completedCount > 0 ? ` (${completedCount})` : ''}</button></div>
+      <div className="list-footer"><button className="text-button" aria-pressed={showCompleted} onClick={() => { clearAllLeaving(); setShowCompleted(!showCompleted); }}>{showCompleted ? 'Hide' : 'Show'} completed{completedCount > 0 ? ` (${completedCount})` : ''}</button></div>
     </main>
     <button className="floating-add-button" disabled={!loaded || busy} aria-label={view === 'projects' ? 'Add project' : activeProject ? 'Add subtask' : 'Add task'} aria-expanded={quickAddOpen} onClick={() => { setQuickAddOpen(true); requestAnimationFrame(() => quickRef.current?.focus()); }}><Plus size={24}/></button>
-    {(notice || undo) && <div className="toast" role="status"><span>{notice || 'Saved.'}</span>{undo && !notice && <button className="text-button" disabled={busy} onClick={() => void save(undo)}>Undo</button>}<button className="icon-button" aria-label="Dismiss" onClick={() => { setNotice(''); setUndo(null); }}><X size={16}/></button></div>}
+    {(notice || undo) && <div className="toast" role="status"><span>{notice || 'Saved.'}</span>{undo && !notice && <button className="text-button" disabled={busy} onClick={() => { clearAllLeaving(); void save(undo); }}>Undo</button>}<button className="icon-button" aria-label="Dismiss" onClick={() => { setNotice(''); setUndo(null); }}><X size={16}/></button></div>}
     {editing && <TaskEditor key={editing.id} task={editing} data={data} busy={busy} error={notice} onClose={() => setEditing(null)} onSave={saveTask} onDelete={async () => {
       if (await save(deleteTask(data, editing.id), true)) { if (activeProject?.id === editing.id) navigate('projects'); setEditing(null); }
     }}/>}
