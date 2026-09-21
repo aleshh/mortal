@@ -96,7 +96,7 @@ h1 { font-size: 27px; font-weight: 700; letter-spacing: -1.1px; line-height: 1.3
 .drag-zone:active { cursor: grabbing; }
 .drag-zone.disabled { cursor: default; }
 .check-target { width: 36px; min-height: 44px; padding: 0; flex-shrink: 0; display: flex; align-items: center; justify-content: flex-start; }
-.checkbox { width: 19px; height: 19px; display: grid; place-items: center; border: 1px solid var(--field-border); border-radius: 2px; color: var(--surface); }
+.checkbox { width: 20px; height: 20px; display: grid; place-items: center; border: 1.5px solid var(--field-border); border-radius: 50%; color: var(--surface); }
 .checked .checkbox { background: var(--ink); border-color: var(--ink); }
 .checkbox.blocked { border: 0; color: var(--ink); }
 .task-content { flex: 0 1 auto; min-width: 0; }
